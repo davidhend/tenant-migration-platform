@@ -1,0 +1,45 @@
+# Node
+node_modules/
+.next/
+.env.local
+.env.*.local
+npm-debug.log*
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+# Secrets
+.env
+settings.override.json
+# DataProtection key ring (persisted under the API content root)
+apps/api/keys/
+
+# Terraform (state + tfvars carry secrets; see infra/terraform/.gitignore)
+*.tfstate
+*.tfstate.*
+**/.terraform/
+infra/terraform/**/terraform.tfvars
+
+# Local artifacts
+tenant_migration_project_backup/
+dotnet-install.sh
+
+# General
+.DS_Store
+Thumbs.db
+*.log
+
+# Docker
+docker-compose.override.yml
+*.tsbuildinfo
+
+# Claude Code agent memory (local working notes, may contain environment identifiers)
+.claude/agent-memory/
+**/.claude/agent-memory/

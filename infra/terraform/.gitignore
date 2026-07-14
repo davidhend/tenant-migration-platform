@@ -1,0 +1,8 @@
+# State contains the migration app client secret — never commit it.
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraform/
+crash.log
+
+# Keep .terraform.lock.hcl committed (pins provider versions).

@@ -1,0 +1,18 @@
+# Run by a TARGET-tenant admin. Copy to terraform.tfvars and adjust.
+# Example values for the TARGET tenant of a migration pair.
+
+target_tenant_id = "REPLACE_ME" # Entra tenant ID of the TARGET tenant
+source_tenant_id = "REPLACE_ME" # SOURCE Entra tenant ID (consent-URL output only)
+
+platform_app_client_id = "REPLACE_ME" # client ID of the target tenant platform app registration
+
+# SharePoint app permissions for OneDrive/SharePoint content migration.
+# Target additionally gets OneDrive.Provision.All (provisioning is target-side).
+# Defaults (leave commented to accept them):
+# platform_sharepoint_roles = [
+#   "Sites.FullControl.All",
+#   "User.ReadWrite.All",
+#   "OneDrive.Provision.All",
+#   "SharePointCrossTenantMigration.Manage.All",
+#   "Migration.ReadWrite.All",
+# ]

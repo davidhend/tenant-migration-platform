@@ -1,0 +1,22 @@
+# Run by the platform operator (needs Azure RBAC only, no Entra directory
+# privileges). Copy to terraform.tfvars and adjust. If the Automation account
+# already exists (created by hand), IMPORT it before the first apply (see
+# ../README.md); greenfield deployments just apply.
+
+subscription_id         = "REPLACE_ME"   # your Azure subscription GUID
+resource_group_name     = "migration-automation-rg"
+automation_account_name = "migration-automation"
+create_resource_group   = false
+
+# Object ID of the principal the API authenticates to Azure as:
+#   app registration (Azure:Identity:ClientId / container AZURE_CLIENT_ID):
+#     az ad sp show --id <client-id> --query id -o tsv     (create the SP first
+#     with `az ad sp create --id <client-id>` if it doesn't exist yet)
+#   local dev API via az login:
+#     az ad signed-in-user show --query id -o tsv
+#   production Container App: the managed identity's principal ID.
+api_principal_object_id = "REPLACE_ME"
+
+# Optional: grant the Automation managed identity access to tenant PFX secrets
+# for the UseKeyVaultCertificate runbook path.
+# key_vault_id = "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault-name>"

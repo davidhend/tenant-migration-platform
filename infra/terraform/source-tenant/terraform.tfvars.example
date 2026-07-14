@@ -1,0 +1,19 @@
+# Run by a SOURCE-tenant admin. Copy to terraform.tfvars and adjust.
+
+
+source_tenant_id = "REPLACE_ME" # Entra tenant ID of the SOURCE tenant
+
+# From the target admin: `terraform output migration_app_client_id` of the
+# target-tenant stack (non-secret GUID).
+migration_app_client_id = "REPLACE_ME"
+
+platform_app_client_id = "REPLACE_ME" # client ID of the source tenant platform app registration
+
+# SharePoint app permissions for OneDrive/SharePoint content migration.
+# Defaults (leave commented to accept them):
+# platform_sharepoint_roles = [
+#   "Sites.FullControl.All",
+#   "User.ReadWrite.All",
+#   "SharePointCrossTenantMigration.Manage.All",
+#   "Migration.ReadWrite.All",
+# ]

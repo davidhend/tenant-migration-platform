@@ -1,0 +1,24 @@
+# Run by the platform operator (Azure RBAC only). Copy to terraform.tfvars and
+# adjust. Depends on the Key Vault and Automation account already existing.
+
+subscription_id = "REPLACE_ME"   # your Azure subscription GUID
+location        = "eastus"
+
+# The API image — build from apps/api/Dockerfile and push to a registry the
+# Container App can pull (public, or ACR with acr_id set below).
+api_image = "REPLACE_ME.azurecr.io/migration-api:latest"
+# acr_id  = "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.ContainerRegistry/registries/REPLACE_ME"
+
+# Existing Key Vault (holds tenant certs, platform secrets, DataProtection key).
+key_vault_id  = "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault-name>"
+key_vault_uri = "https://<vault-name>.vault.azure.net/"
+
+# Existing Automation account (from the platform-azure stack).
+automation_account_id     = "/subscriptions/<subscription-id>/resourceGroups/migration-automation-rg/providers/Microsoft.Automation/automationAccounts/migration-automation"
+automation_account_name   = "migration-automation"
+automation_resource_group = "migration-automation-rg"
+
+# Platform sign-in app registration for Entra ID auth (leave empty to defer;
+# the API then runs in no-auth lockdown until AzureAd is configured).
+# azure_ad_tenant_id = "REPLACE_ME"   # your Entra tenant ID
+# azure_ad_client_id = "REPLACE_ME"

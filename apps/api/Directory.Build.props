@@ -1,0 +1,19 @@
+<Project>
+
+  <!-- Single source of truth for the platform version is the repo-root VERSION
+       file. Read it here so the assembly version, /api/version, and the health
+       payload all stay in sync from one place. Falls back to a literal if the
+       file is missing (e.g. an isolated build context). -->
+  <PropertyGroup>
+    <_VersionFile>$(MSBuildThisFileDirectory)..\..\VERSION</_VersionFile>
+    <PlatformVersion Condition="Exists('$(_VersionFile)')">$([System.IO.File]::ReadAllText('$(_VersionFile)').Trim())</PlatformVersion>
+    <PlatformVersion Condition="'$(PlatformVersion)' == ''">0.9.0</PlatformVersion>
+
+    <Version>$(PlatformVersion)</Version>
+    <InformationalVersion>$(PlatformVersion)</InformationalVersion>
+    <!-- Keep InformationalVersion a clean semver (the SDK otherwise appends
+         "+<commit-sha>"), so /api/version returns exactly the VERSION value. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+</Project>

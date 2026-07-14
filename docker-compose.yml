@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: migration-postgres
+    environment:
+      POSTGRES_DB: migration_platform
+      POSTGRES_USER: migration_user
+      POSTGRES_PASSWORD: devpassword123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - migration-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U migration_user -d migration_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: migration-api
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - Platform__DevMode=true
+      - Platform__MockGraphCalls=false
+      - Database__AutoMigrate=true
+      - Jwt__Issuer=https://migration-platform.local
+      - Jwt__Audience=migration-platform-api
+      - Jwt__SecretKey=dev-only-secret-key-change-in-production-32chars!
+      # Local compose runs self-contained: no Azure credentials, so the
+      # file-based secret store is used instead of Key Vault. Set to true only
+      # when AZURE_* below point at an identity with vault access.
+      - KeyVault__Enabled=false
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=migration_platform;Username=migration_user;Password=devpassword123
+      # Azure identity for ARM calls (triggering Automation runbooks) and, if
+      # KeyVault__Enabled=true, vault access. Create a dedicated app
+      # registration; it needs Automation Contributor on the Automation account
+      # (and vault roles if KeyVault is enabled), NOT Graph/SPO permissions.
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:-}
+    volumes:
+      # Runtime-writable settings (Settings UI, Pre-Setup wizard values, and —
+      # with KeyVault disabled — the file-based secret store all write here).
+      # Bind-mounted so configuration survives container rebuilds; start.sh
+      # creates the file if missing (a missing host path would become a
+      # directory and break the mount).
+      - ./apps/api/settings.override.json:/app/settings.override.json
+      # DataProtection key ring — persists across rebuilds.
+      - api_keys:/app/keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - migration-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/live || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:5000/api
+        NEXT_PUBLIC_USE_MOCK: "false"
+    container_name: migration-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - migration-net
+    restart: unless-stopped
+
+networks:
+  migration-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  api_keys:
