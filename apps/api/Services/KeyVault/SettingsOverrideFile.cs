@@ -14,6 +14,15 @@ public static class SettingsOverrideFile
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
+    /// <summary>
+    /// Invoked after every successful write so the host can reload
+    /// <see cref="IConfigurationRoot"/> explicitly. The <c>reloadOnChange</c>
+    /// file watcher alone is not enough: when the file is bind-mounted from a
+    /// Windows drive (Docker Desktop / WSL2) inotify events never reach the
+    /// container, so watcher-based reload silently does nothing.
+    /// </summary>
+    public static Action? ConfigurationReloader { get; set; }
+
     public static string GetPath(IWebHostEnvironment env) =>
         Path.Combine(env.ContentRootPath, "settings.override.json");
 
@@ -32,6 +41,8 @@ public static class SettingsOverrideFile
         {
             Gate.Release();
         }
+
+        ConfigurationReloader?.Invoke();
     }
 
     /// <summary>Read the parsed file under the global lock (empty object when absent/malformed).</summary>

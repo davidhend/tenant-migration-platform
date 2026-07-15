@@ -486,6 +486,13 @@ builder.Services.AddHostedService<RetentionWorker>();
 
 var app = builder.Build();
 
+// Writer-triggered config reload: the reloadOnChange watcher on
+// settings.override.json never fires when the file sits on a Windows-drive
+// bind mount (Docker Desktop / WSL2), so every writer explicitly reloads the
+// configuration root after persisting.
+SettingsOverrideFile.ConfigurationReloader =
+    () => ((IConfigurationRoot)app.Configuration).Reload();
+
 // ── Apply EF migrations and seed on startup ──────────────────────────────────
 // Database:AutoMigrate controls ONLY whether EF migrations are applied and the
 // seeder runs at startup — background workers run regardless (gate them with
