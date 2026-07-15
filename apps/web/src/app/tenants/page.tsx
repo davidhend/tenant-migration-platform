@@ -74,6 +74,7 @@ export default function TenantsPage() {
       return tenant;
     },
     onSuccess: (tenant) => {
+      qc.invalidateQueries({ queryKey: ["tenants"] });
       setCreatedId(tenant.id);
       setStep(2);
     },
