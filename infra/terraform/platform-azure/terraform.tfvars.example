@@ -8,13 +8,24 @@ resource_group_name     = "migration-automation-rg"
 automation_account_name = "migration-automation"
 create_resource_group   = false
 
-# Object ID of the principal the API authenticates to Azure as:
-#   app registration (Azure:Identity:ClientId / container AZURE_CLIENT_ID):
-#     az ad sp show --id <client-id> --query id -o tsv     (create the SP first
-#     with `az ad sp create --id <client-id>` if it doesn't exist yet)
-#   local dev API via az login:
-#     az ad signed-in-user show --query id -o tsv
-#   production Container App: the managed identity's principal ID.
+# Object ID of the principal the API authenticates to Azure as.
+# Pick the ONE case matching how you run the API:
+#
+#   1. Docker compose stack (./start.sh — the default) or any API using
+#      Settings → Azure Identity: CREATE a dedicated app registration first
+#      (no stack creates it; it needs no Graph/EXO permissions):
+#        az ad app create --display-name migration-platform-api --query appId -o tsv
+#        az ad sp create --id <appId>
+#        az ad app credential reset --id <appId> --append --query password -o tsv
+#      Put the appId + secret in Settings → Azure Identity; here supply the
+#      SERVICE PRINCIPAL object id (Enterprise App object id, NOT the app
+#      registration's):  az ad sp show --id <appId> --query id -o tsv
+#
+#   2. Production Azure Container App: the managed identity's principal ID.
+#
+#   3. API run directly via `dotnet run` with az login (NOT the Docker
+#      stack — the container has no az login): your user object id —
+#        az ad signed-in-user show --query id -o tsv
 api_principal_object_id = "REPLACE_ME"
 
 # Optional: grant the Automation managed identity access to tenant PFX secrets
