@@ -412,13 +412,13 @@ public class ContentMigrationWorker : BackgroundService
         Services.Spo.SpoPowerShellCredentials spoCreds;
         try
         {
-            var (kvCertBase64, kvCertPassword, _) = await keyVault.LoadCredentialsAsync(sourceTenant.Id, stoppingToken);
+            var (kvCertBase64, kvCertPassword) = await keyVault.LoadCertificateWithFallbackAsync(sourceTenant, stoppingToken);
             if (string.IsNullOrEmpty(kvCertBase64) ||
                 string.IsNullOrWhiteSpace(sourceTenant.AppClientId) ||
                 string.IsNullOrWhiteSpace(sourceTenant.TenantId))
             {
                 throw new InvalidOperationException(
-                    "Source tenant is missing an app-only certificate in Key Vault, AppClientId, or TenantId.");
+                    "Source tenant is missing an app-only certificate (Key Vault or tenant record), AppClientId, or TenantId.");
             }
             spoCreds = new Services.Spo.SpoPowerShellCredentials(
                 sourceTenant.TenantId, sourceTenant.AppClientId, kvCertBase64, kvCertPassword,

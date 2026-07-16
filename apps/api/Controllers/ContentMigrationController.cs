@@ -995,12 +995,13 @@ public class ContentMigrationController : ControllerBase
 
     private async Task<SpoPowerShellCredentials> BuildSpoCredentialsAsync(Tenant tenant, CancellationToken ct)
     {
-        var (certB64, certPwd, _) = await _keyVault.LoadCredentialsAsync(tenant.Id, ct);
+        var (certB64, certPwd) = await _keyVault.LoadCertificateWithFallbackAsync(tenant, ct);
         if (string.IsNullOrEmpty(certB64))
         {
             throw new InvalidOperationException(
-                $"No certificate stored in Key Vault for tenant {tenant.Id}. " +
-                "The SPO cross-tenant cmdlets require an app-only certificate — a client secret is not supported.");
+                $"No certificate found for tenant {tenant.Id} (checked Key Vault and the tenant record). " +
+                "The SPO cross-tenant cmdlets require an app-only certificate — a client secret is not supported. " +
+                "Upload the PFX via Tenants → Re-configure App.");
         }
         if (string.IsNullOrWhiteSpace(tenant.AppClientId) || string.IsNullOrWhiteSpace(tenant.TenantId))
         {

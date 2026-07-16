@@ -313,7 +313,7 @@ public class OneDriveProvisioningWorker : BackgroundService
             return;
         }
 
-        var (certB64, certPwd, _) = await keyVault.LoadCredentialsAsync(target.Id, ct);
+        var (certB64, certPwd) = await keyVault.LoadCertificateWithFallbackAsync(target, ct);
         if (string.IsNullOrEmpty(certB64) ||
             string.IsNullOrWhiteSpace(target.AppClientId) ||
             string.IsNullOrWhiteSpace(target.TenantId))

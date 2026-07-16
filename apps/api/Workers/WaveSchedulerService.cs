@@ -278,7 +278,7 @@ public sealed class WaveSchedulerService : BackgroundService
             var targetHostUrl  = $"https://{targetTenant.OnMicrosoftDomain}-my.sharepoint.com";
 
             Services.Spo.SpoPowerShellCredentials? spoCreds = null;
-            var (srcCertB64, srcCertPw, _) = await keyVault.LoadCredentialsAsync(sourceTenant.Id, ct);
+            var (srcCertB64, srcCertPw) = await keyVault.LoadCertificateWithFallbackAsync(sourceTenant, ct);
             if (string.IsNullOrEmpty(srcCertB64) ||
                 string.IsNullOrWhiteSpace(sourceTenant.AppClientId) ||
                 string.IsNullOrWhiteSpace(sourceTenant.TenantId))

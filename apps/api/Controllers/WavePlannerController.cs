@@ -492,15 +492,15 @@ public class WavePlannerController : ControllerBase
                 ? $"https://{sourceTenant.OnMicrosoftDomain}-my.sharepoint.com"
                 : $"https://{project.TargetTenant.OnMicrosoftDomain}-my.sharepoint.com";
 
-            var (srcCertB64, srcCertPwd, _) = await _keyVault.LoadCredentialsAsync(sourceTenant.Id, ct);
+            var (srcCertB64, srcCertPwd) = await _keyVault.LoadCertificateWithFallbackAsync(sourceTenant, ct);
             if (string.IsNullOrEmpty(srcCertB64) ||
                 string.IsNullOrWhiteSpace(sourceTenant.AppClientId) ||
                 string.IsNullOrWhiteSpace(sourceTenant.TenantId))
             {
                 return UnprocessableEntity(new
                 {
-                    message = "Source tenant is missing an app-only certificate in Key Vault, AppClientId, " +
-                              "or TenantId. SPO cross-tenant cmdlets require all three."
+                    message = "Source tenant is missing an app-only certificate (Key Vault or tenant record), " +
+                              "AppClientId, or TenantId. SPO cross-tenant cmdlets require all three."
                 });
             }
             spoCredentials = new SpoPowerShellCredentials(
