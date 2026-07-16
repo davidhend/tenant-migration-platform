@@ -207,10 +207,20 @@ export default function SettingsPage() {
 
   const saveIdentity = useMutation({
     mutationFn: (s: AzureIdentityRequest) => settingsApi.updateAzureIdentity(s),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["settings", "azure-identity"] });
       setIdForm((f) => ({ ...f, clientSecret: undefined, certificateBase64: undefined, certificatePassword: undefined }));
-      toast.success("Service principal credentials saved.");
+      if (res.credentialTest && !res.credentialTest.success) {
+        toast.warning(
+          `Credentials saved, but they FAILED a live sign-in test: ${res.credentialTest.error ?? "unknown error"}. ` +
+          "Check that Client ID is the app registration's Application (client) ID — not a service principal object ID — " +
+          "and that the secret belongs to that same app.",
+          { duration: 15000 });
+      } else if (res.credentialTest?.success) {
+        toast.success("Service principal credentials saved and verified (ARM token test passed).");
+      } else {
+        toast.success("Service principal credentials saved.");
+      }
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -765,7 +775,9 @@ terraform init && terraform plan && terraform apply`}</Cmd>
                   </li>
                   <li>
                     Copy the <strong>Application (client) ID</strong> from the
-                    Overview page.
+                    Overview page — NOT the object ID, and not the Enterprise
+                    Application (service principal) object ID; those look
+                    identical but will fail the sign-in test on save.
                   </li>
                   <li>
                     Choose an authentication method:
@@ -1074,7 +1086,9 @@ az automation account create \\
                   </li>
                   <li>
                     Copy the <strong>Application (client) ID</strong> from the
-                    Overview page.
+                    Overview page — NOT the object ID, and not the Enterprise
+                    Application (service principal) object ID; those look
+                    identical but will fail the sign-in test on save.
                   </li>
                 </ol>
                 <p>

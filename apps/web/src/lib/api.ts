@@ -354,12 +354,6 @@ export const contentMigrationsApi = {
     request<ContentMigrationItem[]>(`/projects/${projectId}/content-migrations/${jobId}/items`),
   delete: (projectId: string, jobId: string) =>
     request<void>(`/projects/${projectId}/content-migrations/${jobId}`, { method: "DELETE" }),
-  provisionOneDrive: (projectId: string, jobId: string) =>
-    request<{
-      jobId: string;
-      status: import("@/types").ContentJobStatus;
-      message: string;
-    }>(`/projects/${projectId}/content-migrations/${jobId}/provision-onedrive`, { method: "POST" }),
 };
 
 // ─── Domain Cutover ──────────────────────────────────────────────────────────
@@ -417,6 +411,8 @@ export interface AzureIdentityResponse {
   hasCertificate: boolean;
   certificateThumbprint: string;
   isConfigured: boolean;
+  /** Save-time live probe of the credential (an ARM token mint). */
+  credentialTest?: { success: boolean; error?: string };
 }
 
 export interface AzureIdentityRequest {

@@ -15,7 +15,7 @@ variable "migration_app_display_name" {
 }
 
 variable "migration_app_secret_rotation_days" {
-  description = "Lifetime of the migration app client secret in days (max 730)."
+  description = "How often a `terraform apply` ROTATES the migration app client secret (a new secret is issued once this many days have passed, on the next apply). This does NOT set the secret's expiry — Entra issues it with the provider default (~2 years); keep this comfortably below that so rotation happens first. Every rotation must be re-entered in Settings → Pre-Setup AND the migration endpoint credential must be recreated manually."
   type        = number
   default     = 365
 }

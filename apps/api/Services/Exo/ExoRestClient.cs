@@ -134,6 +134,16 @@ public sealed partial class ExoRestClient : IExoRestClient
         string aadTenantId, TokenCredential credential, CancellationToken ct,
         string? remoteTenant = null)
     {
+        var endpoint = await FindCrossTenantMigrationEndpointElementAsync(aadTenantId, credential, ct, remoteTenant);
+        return endpoint is { } ep && ep.TryGetProperty("Identity", out var identity)
+            ? identity.GetString()
+            : null;
+    }
+
+    private async Task<JsonElement?> FindCrossTenantMigrationEndpointElementAsync(
+        string aadTenantId, TokenCredential credential, CancellationToken ct,
+        string? remoteTenant = null)
+    {
         JsonElement[] results;
         try
         {
@@ -165,8 +175,7 @@ public sealed partial class ExoRestClient : IExoRestClient
                     continue;
             }
 
-            if (endpoint.TryGetProperty("Identity", out var identity))
-                return identity.GetString();
+            return endpoint;
         }
 
         return null;
@@ -742,10 +751,35 @@ public sealed partial class ExoRestClient : IExoRestClient
         string? clientSecret = null)
     {
         // Return the existing endpoint identity if one already exists FOR THIS remote tenant.
-        var existing = await FindCrossTenantMigrationEndpointAsync(
+        var existingEndpoint = await FindCrossTenantMigrationEndpointElementAsync(
             aadTenantId, credential, ct, remoteTenant: targetTenantDomain);
-        if (existing is not null)
+        if (existingEndpoint is { } existingEp)
         {
+            var existing = existingEp.TryGetProperty("Identity", out var idProp) ? idProp.GetString() : null;
+
+            // An endpoint left over from a previous setup can reference a DIFFERENT
+            // app than the configured migration app. MRS then authenticates as the
+            // endpoint's app while the org relationships expect the configured one,
+            // and the source ProxyService rejects every move with a bare "Access is
+            // denied" (confirmed live 2026-07-16: a stale endpoint surviving a tenant
+            // teardown cost three identical failed batches). The credential cannot be
+            // patched over EXO REST, so fail fast with the manual recreate script.
+            var epAppId = GetStringProp(existingEp, "ApplicationId");
+            if (!string.IsNullOrWhiteSpace(applicationId) &&
+                !string.IsNullOrWhiteSpace(epAppId) &&
+                !string.Equals(epAppId, applicationId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Migration endpoint '{existing}' in tenant {aadTenantId} references ApplicationId " +
+                    $"{epAppId}, but the configured cross-tenant migration app is {applicationId}. MRS would " +
+                    "authenticate as the endpoint's app and the source tenant would reject every move with " +
+                    "\"Access is denied\". Recreate the endpoint on the target tenant with the current app: " +
+                    $"Remove-MigrationBatch on any plat-* batches, then Remove-MigrationEndpoint -Identity '{existing}'; " +
+                    $"New-MigrationEndpoint -Name '{existing}' -ExchangeRemoteMove -RemoteTenant {targetTenantDomain} " +
+                    $"-RemoteServer outlook.office.com -ApplicationId {applicationId} -Credentials " +
+                    $"(New-Object PSCredential -ArgumentList {applicationId}, (ConvertTo-SecureString <current secret> -AsPlainText -Force)).");
+            }
+
             // NOTE: an existing endpoint can carry a STALE client secret — MRS then
             // fails deep in the move with AADSTS7000215 (Invalid client secret) even
             // though the platform's configured secret is valid. The credential cannot
@@ -763,7 +797,7 @@ public sealed partial class ExoRestClient : IExoRestClient
                 "-RemoteTenant {RemoteTenant2} -RemoteServer outlook.office.com -ApplicationId {AppId} " +
                 "-Credentials (New-Object PSCredential (AppId),(ConvertTo-SecureString (secret-VALUE) -AsPlainText -Force)).",
                 existing, targetTenantDomain, aadTenantId, existing, existing, targetTenantDomain, applicationId ?? "<AppId>");
-            return (existing, false);
+            return (existing ?? string.Empty, false);
         }
 
         // Endpoint names must be unique per tenant; suffix with the remote tenant so
@@ -988,6 +1022,26 @@ public sealed partial class ExoRestClient : IExoRestClient
         var existing = await TryGetMailUserAsync(aadTenantId, targetUpn, credential, ct);
         if (existing is null)
         {
+            // A MailUser at the UPN is reusable (patched below), but ANY OTHER
+            // recipient holding the target address — a different person's mailbox,
+            // a group, a contact — makes New-MailUser fail with a raw "proxy
+            // address ... is already being used" error (hit live 2026-07-16 when
+            // auto-map paired a source user with an unrelated target user sharing
+            // the same UPN). Probe Get-Recipient so the collision surfaces as an
+            // actionable message instead.
+            var conflicting = await TryGetRecipientAsync(aadTenantId, targetUpn, credential, ct);
+            if (conflicting is { } conflict)
+            {
+                var recipientType = GetStringProp(conflict, "RecipientTypeDetails") ?? "recipient";
+                var displayName   = GetStringProp(conflict, "DisplayName") ?? targetUpn;
+                throw new InvalidOperationException(
+                    $"Target UPN '{targetUpn}' is already in use by an existing {recipientType} " +
+                    $"('{displayName}') in the target tenant. If that is a different person, remap the " +
+                    "source user to an unused target UPN in the project's Identity Map and recreate the " +
+                    "batch. If it is a leftover from a previous migration attempt, remove it — including " +
+                    "soft-deleted objects: Get-MailUser -SoftDeletedMailUser | Remove-MailUser -PermanentlyDelete — and retry.");
+            }
+
             // Cloud New-MailUser requires a Windows Live ID (-MicrosoftOnlineServicesID)
             // to create the backing directory object; that parameter set also mandates
             // -Password. The target user does not pre-exist here, so both are supplied.
@@ -1118,6 +1172,26 @@ public sealed partial class ExoRestClient : IExoRestClient
         Span<byte> bytes = stackalloc byte[24];
         System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
         return "Aa1!" + Convert.ToBase64String(bytes).Replace('/', '_').Replace('+', '-');
+    }
+
+    /// <summary>Probe any recipient type at an address (Get-Recipient); null when none exists.</summary>
+    private async Task<JsonElement?> TryGetRecipientAsync(
+        string aadTenantId, string identity, TokenCredential credential, CancellationToken ct)
+    {
+        try
+        {
+            var results = await InvokeCommandAsync(
+                aadTenantId,
+                "Get-Recipient",
+                new Dictionary<string, object> { ["Identity"] = identity },
+                credential,
+                ct);
+            return results.Length == 0 ? null : results[0];
+        }
+        catch (InvalidOperationException ex) when (IsExoNotFound(ex))
+        {
+            return null;
+        }
     }
 
     private async Task<JsonElement?> TryGetMailUserAsync(

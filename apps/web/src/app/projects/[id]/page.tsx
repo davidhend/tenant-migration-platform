@@ -418,7 +418,23 @@ export default function ProjectDetailPage() {
         old?.map((b) => b.id === batchId ? { ...b, status: "syncing" as const } : b));
       return { prev };
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["mailbox-batches", id] }); toast.success("Batch started"); },
+    onSuccess: (batch) => {
+      qc.invalidateQueries({ queryKey: ["mailbox-batches", id] });
+      const lic = batch?.licenseAssignment;
+      if (lic?.attempted && !lic.skuFound) {
+        toast.warning(
+          "Batch started, but no Cross Tenant User Data Migration SKU was found — purchase seats or assign licenses manually, or moves will stall in NeedsApproval.",
+          { duration: 12000 });
+      } else if (lic?.attempted && lic.failed > 0) {
+        toast.warning(
+          `Batch started, but license auto-assignment failed for ${lic.failed} user(s)` +
+          (lic.failures?.[0] ? ` (${lic.failures[0].upn}: ${lic.failures[0].reason})` : "") +
+          ". Assign the migration license manually or the move will stall in NeedsApproval.",
+          { duration: 12000 });
+      } else {
+        toast.success("Batch started");
+      }
+    },
     onError: (err: Error, _batchId, context) => {
       if (context?.prev) qc.setQueryData(["mailbox-batches", id], context.prev);
       const msg = err?.message?.replace(/^API error \d+:\s*/, "") || "Failed to start batch";
@@ -575,18 +591,6 @@ export default function ProjectDetailPage() {
     onError: () => toast.error("Failed to create content job"),
   });
 
-  const provisionOneDriveMutation = useMutation({
-    mutationFn: (jobId: string) => contentMigrationsApi.provisionOneDrive(id, jobId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["content-jobs", id] });
-      toast.info("OneDrive provisioning started — job will be marked Ready once target users are provisioned.");
-    },
-    onError: (err: Error) => {
-      const msg = err?.message?.replace(/^API error \d+:\s*/, "") || "Failed to start OneDrive provisioning";
-      toast.error(msg, { duration: 8000 });
-    },
-  });
-
   const startContentJobMutation = useMutation({
     mutationFn: (jobId: string) => contentMigrationsApi.start(id, jobId),
     onMutate: async (jobId: string) => {
@@ -596,15 +600,9 @@ export default function ProjectDetailPage() {
         old?.map((j) => j.id === jobId ? { ...j, status: "running" as const } : j));
       return { prev };
     },
-    onSuccess: (job) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["content-jobs", id] });
-      // Start returns 202 + status "provisioning" when target OneDrives are
-      // missing — the backend queues provisioning and the job starts from Ready.
-      if (job?.status === "provisioning") {
-        toast.info("OneDrive provisioning started — the migration will be ready to start once target drives are provisioned.", { duration: 8000 });
-      } else {
-        toast.success("Content job started");
-      }
+      toast.success("Content job started");
     },
     onError: (err: Error, _jobId, context) => {
       if (context?.prev) qc.setQueryData(["content-jobs", id], context.prev);
@@ -2379,17 +2377,6 @@ export default function ProjectDetailPage() {
                           <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{relativeTime(job.createdAt)}</td>
                           <td className="px-4 py-3">
                             <div className="flex gap-1">
-                              {(job.status === "draft" || job.status === "ready" || job.status === "failed") && job.jobType === "oneDrive" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  title={job.status === "failed" ? "Re-run OneDrive provisioning for the target users." : "Pre-provision target OneDrive personal sites."}
-                                  onClick={() => provisionOneDriveMutation.mutate(job.id)}
-                                  disabled={provisionOneDriveMutation.isPending}
-                                >
-                                  {provisionOneDriveMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <HardDrive className="h-3 w-3 mr-1" />}Provision
-                                </Button>
-                              )}
                               {job.status === "provisioning" && (
                                 <Button size="sm" variant="outline" disabled>
                                   <Loader2 className="h-3 w-3 mr-1 animate-spin" />Provisioning

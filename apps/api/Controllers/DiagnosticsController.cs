@@ -101,6 +101,9 @@ public class DiagnosticsController : ControllerBase
         // ── Check 1+2: token mints, roles claim ─────────────────────────────
         string tokenClaimsString = "";
         Dictionary<string, string?> claims = new();
+        // Set when the token's wids claim carries an Exchange-granting directory
+        // role — the supported authorization path, consulted again by check 4.
+        var hasDirectoryRole = false;
         try
         {
             var tokenResult = await cred.GetTokenAsync(
@@ -161,6 +164,7 @@ public class DiagnosticsController : ControllerBase
             bool hasExchangeAdmin          = wids.Contains(ExchangeAdminRoleId,          StringComparison.OrdinalIgnoreCase);
             bool hasExchangeRecipientAdmin = wids.Contains(ExchangeRecipientAdminRoleId, StringComparison.OrdinalIgnoreCase);
             bool hasGlobalAdmin            = wids.Contains(GlobalAdminRoleId,            StringComparison.OrdinalIgnoreCase);
+            hasDirectoryRole = hasExchangeAdmin || hasExchangeRecipientAdmin || hasGlobalAdmin;
 
             if (hasExchangeAdmin || hasExchangeRecipientAdmin || hasGlobalAdmin)
             {
@@ -245,7 +249,17 @@ public class DiagnosticsController : ControllerBase
             interpretSuccess: results =>
             {
                 if (results.Length == 0)
-                    return ("FAIL — no role assignments found for this app.", false);
+                    // Zero assignments is the EXPECTED state for the supported
+                    // configuration: EXO derives cmdlet access from the Entra
+                    // directory role in the token's wids claim, which creates no
+                    // Get-ManagementRoleAssignment objects. Explicit assignments
+                    // only exist from legacy 'New-ManagementRoleAssignment -App'
+                    // grants — which are inert for admin cmdlets anyway.
+                    return hasDirectoryRole
+                        ? ("PASS — no explicit management role assignments, and none are needed: cmdlet access " +
+                           "comes from the Entra directory role verified by exchange.directory_role.", true)
+                        : ("FAIL — no role assignments found AND no Exchange-granting directory role in the token. " +
+                           "EXO write cmdlets will 403.", false);
 
                 var sb = new StringBuilder();
                 var problems = new List<string>();
@@ -352,7 +366,13 @@ public class DiagnosticsController : ControllerBase
 
                 return (prefix + sb, true);
             },
-            remediationOnFail: "Assign at minimum: 'Mail Recipients', 'Distribution Groups', 'Migration', 'Organization Configuration', 'Recipient Policies', 'View-Only Configuration', 'View-Only Recipients' to the service principal via New-ManagementRoleAssignment -App <appId> -Role <role>. If a restricted RecipientWriteScope is shown above, recreate the role assignment WITHOUT a -RecipientOrganizationalUnitScope or -CustomRecipientWriteScope to grant org-wide write.");
+            remediationOnFail: "Assign the 'Exchange Administrator' Microsoft Entra directory role to the app's " +
+                "service principal (Entra → Roles and administrators → Exchange Administrator → Add assignment) — " +
+                "EXO derives app cmdlet access from the token's wids claim. Do NOT use " +
+                "'New-ManagementRoleAssignment -App' for admin roles: Microsoft documents that -App accepts only " +
+                "'Application *' roles (Graph/EWS-only); other roles are accepted silently but grant nothing. " +
+                "If this check errored with 'couldn't be found', the app's service principal is also missing from " +
+                "EXO — run New-ServicePrincipal first (see exo.sp.self).");
 
         // ── Check 4b: Verify the cmdlet New-DistributionGroup is actually
         // covered by the assigned roles (RoleEntries inspection). RBAC can be

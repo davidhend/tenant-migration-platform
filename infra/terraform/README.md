@@ -49,6 +49,16 @@ If the source admin won't run Terraform at all: the target stack's
 consent, and the platform's Setup wizard (`/projects/{id}/setup`) renders
 bootstrap scripts covering the source platform-app grants.
 
+**Pick ONE path — the URL or the source-tenant stack, never both.** Clicking
+the consent URL creates the migration app's service principal in the source
+tenant; the source-tenant stack then fails on apply with
+`A resource with the ID "<sp-object-id>" already exists`
+(`azuread_service_principal.migration`). Recovery if you already clicked it:
+either delete the consent-created SP and let Terraform own it
+(`az ad sp delete --id <sp-object-id>`, then re-apply — consent is recreated
+seconds later), or import it
+(`terraform import azuread_service_principal.migration /servicePrincipals/<sp-object-id>`).
+
 ## Authentication (per stack, single tenant)
 
 ```bash

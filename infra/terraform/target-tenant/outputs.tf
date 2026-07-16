@@ -15,7 +15,7 @@ output "migration_app_secret_expires" {
 }
 
 output "source_admin_consent_url" {
-  description = "Fallback for the source admin if they don't run the source-tenant stack: one click on this URL consents the migration app in the source tenant (covers ONLY that step, not the source platform-app grants)."
+  description = "Fallback for the source admin ONLY if they will NOT run the source-tenant stack: one click consents the migration app in the source tenant (covers only that step, not the source platform-app grants). Do NOT use both — the stack creates the same service principal and its apply then fails with 'already exists' (see the README's recovery steps)."
   value       = "https://login.microsoftonline.com/${var.source_tenant_id}/adminconsent?client_id=${azuread_application.migration.client_id}&redirect_uri=https://office.com"
 }
 

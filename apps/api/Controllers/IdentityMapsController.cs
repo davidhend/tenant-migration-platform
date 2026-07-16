@@ -97,6 +97,19 @@ public class IdentityMapsController : ControllerBase
         var sourceUpns = users.Select(u => u.Upn).ToList();
         var transformed = await _transform.TransformUpnBatchAsync(projectId, sourceUpns, ct);
 
+        // Cross-check derived UPNs against the latest TARGET tenant scan: a
+        // derived UPN can land on an unrelated existing person who happens to
+        // share the same mailbox alias, and the batch then fails mid-prep on
+        // the proxy-address collision (hit live). A same-name match is left
+        // Mapped (likely the same human, e.g. pre-created or already
+        // migrated); a different name needs human review.
+        var targetScan = await _scans.GetLatestCompletedAsync(project.TargetTenantId, ct);
+        var targetUsersByUpn = targetScan is null
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : (await _scans.GetUsersAsync(targetScan.Id, ct))
+                .GroupBy(u => u.Upn, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().DisplayName, StringComparer.OrdinalIgnoreCase);
+
         int mapped = 0, conflicts = 0, unmapped = 0;
         var newMaps = new List<IdentityMap>(users.Count);
 
@@ -113,6 +126,16 @@ public class IdentityMapsController : ControllerBase
                 // No transformation rule matched — cannot determine target identity.
                 status = MappingStatus.Unmapped;
                 unmapped++;
+            }
+            else if (targetUsersByUpn.TryGetValue(targetUpn, out var targetDisplayName) &&
+                     !string.Equals(targetDisplayName, user.DisplayName, StringComparison.OrdinalIgnoreCase))
+            {
+                status = MappingStatus.Conflict;
+                conflictReason =
+                    $"Target UPN already belongs to '{targetDisplayName}' in the target tenant, but the source " +
+                    $"user is '{user.DisplayName}'. If they are different people, edit this mapping to an unused " +
+                    "target UPN; if they are the same person, edit the mapping to confirm it (manual edits count as mapped).";
+                conflicts++;
             }
             else
             {

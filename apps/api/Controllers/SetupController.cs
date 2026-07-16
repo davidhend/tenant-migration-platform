@@ -199,8 +199,8 @@ public class SetupController : ControllerBase
         }
 
         // ── Entra/EXO: per-tenant bootstrap scripts ──────────────────────────
-        AddBootstrapScriptStep(steps, "source", source);
-        AddBootstrapScriptStep(steps, "target", target);
+        AddBootstrapScriptStep(steps, "source", source, migrationAppId);
+        AddBootstrapScriptStep(steps, "target", target, migrationAppId);
 
         // ── Config: per-tenant credential presence ───────────────────────────
         AddCredentialStep(steps, "source", source);
@@ -483,13 +483,38 @@ public class SetupController : ControllerBase
         });
     }
 
-    private static void AddBootstrapScriptStep(List<SetupStep> steps, string side, Tenant tenant)
+    private static void AddBootstrapScriptStep(List<SetupStep> steps, string side, Tenant tenant, string? migrationAppId)
     {
         var domain = FullOnMicrosoftDomain(tenant) ?? "<tenant>.onmicrosoft.com";
+
+        // The whole script is idempotent and Terraform-aware: re-running it, or
+        // running it after the Terraform stacks already granted the directory
+        // role, must not error out half-way (a raw "conflicting object" 400 from
+        // the role assignment aborted real runs before the migration-app step).
+        var migrationAppBlock = string.IsNullOrWhiteSpace(migrationAppId)
+            ? """
+
+              # 3. (Skipped) Cross-tenant migration app EXO registration — configure
+              #    Platform:CrossTenantMigration:AppId first, then re-copy this script.
+              """
+            : $$"""
+
+              # 3. Register the cross-tenant Mailbox Migration app's service principal
+              #    inside Exchange Online too — MRS validates it during cross-tenant moves.
+              $mig = Get-MgServicePrincipal -Filter "appId eq '{{migrationAppId}}'"
+              if (-not $mig) { throw "Service principal for migration app {{migrationAppId}} not found - consent it in this tenant first (Terraform stack or adminconsent URL)." }
+              if (Get-ServicePrincipal -Identity '{{migrationAppId}}' -ErrorAction SilentlyContinue) {
+                  Write-Host "Migration app already registered in EXO - OK"
+              } else {
+                  New-ServicePrincipal -AppId '{{migrationAppId}}' -ObjectId $mig.Id
+              }
+              """;
+
         var script = $$"""
             # One-time EXO + Entra bootstrap for {{tenant.DisplayName}} ({{domain}})
             # Run as a Global Administrator. Requires the ExchangeOnlineManagement and
             # Microsoft.Graph PowerShell modules (PowerShell 7+ recommended).
+            # Safe to re-run: every step skips or reports what already exists.
 
             Connect-MgGraph -TenantId {{domain}} -Scopes "Application.Read.All","RoleManagement.ReadWrite.Directory"
             $sp = Get-MgServicePrincipal -Filter "appId eq '{{tenant.AppClientId}}'"
@@ -498,13 +523,27 @@ public class SetupController : ControllerBase
             # 1. Register the platform app's service principal inside Exchange Online.
             #    Without this EXO returns 401 on every call regardless of AAD consent.
             Connect-ExchangeOnline -Organization {{domain}}
-            New-ServicePrincipal -AppId '{{tenant.AppClientId}}' -ObjectId $sp.Id
+            if (Get-ServicePrincipal -Identity '{{tenant.AppClientId}}' -ErrorAction SilentlyContinue) {
+                Write-Host "Platform app already registered in EXO - OK"
+            } else {
+                New-ServicePrincipal -AppId '{{tenant.AppClientId}}' -ObjectId $sp.Id
+            }
 
             # 2. Assign the Exchange Administrator directory role to the service principal.
             #    EXO derives cmdlet RBAC from Entra directory roles (the token's wids claim);
             #    Exchange RBAC role assignments via -App are inert for admin cmdlets.
-            New-MgRoleManagementDirectoryRoleAssignment -PrincipalId $sp.Id `
-                -RoleDefinitionId '{{ExchangeAdministratorRoleId}}' -DirectoryScopeId '/'
+            #    Already assigned (e.g. by the Terraform stacks) surfaces as a
+            #    "conflicting object" 400 - treated as success.
+            try {
+                New-MgRoleManagementDirectoryRoleAssignment -PrincipalId $sp.Id `
+                    -RoleDefinitionId '{{ExchangeAdministratorRoleId}}' -DirectoryScopeId '/' -ErrorAction Stop | Out-Null
+                Write-Host "Exchange Administrator role assigned"
+            } catch {
+                if ($_.Exception.Message -match 'conflicting object') {
+                    Write-Host "Exchange Administrator role already assigned - OK"
+                } else { throw }
+            }
+            {{migrationAppBlock}}
             """;
 
         steps.Add(new SetupStep
@@ -515,9 +554,11 @@ public class SetupController : ControllerBase
             Audience = side == "source" ? "sourceAdmin" : "targetAdmin",
             Kind = "script",
             Status = "unknown",
-            Detail = "Registers the platform app inside Exchange Online and grants it the Exchange Administrator " +
-                     "directory role — the two steps an app cannot perform on itself. " +
-                     "Verify afterwards with Run checks (exo.serviceprincipal / token.roles).",
+            Detail = "Registers the platform app (and the cross-tenant migration app) inside Exchange Online and " +
+                     "grants the platform app the Exchange Administrator directory role — steps an app cannot " +
+                     "perform on itself. Idempotent: safe to re-run, and already-done steps (e.g. the Terraform " +
+                     "role assignment) report OK instead of erroring. " +
+                     "Verify afterwards with Run checks (exo.sp.self / exo.sp.migration / token.roles).",
             Script = script,
         });
     }

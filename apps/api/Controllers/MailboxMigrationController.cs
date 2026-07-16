@@ -763,7 +763,9 @@ public class MailboxMigrationController : ControllerBase
                 ? BatchStatus.Failed
                 : BatchStatus.Completed;
             if (batch.Status == BatchStatus.Completed)
-                batch.ErrorMessage = null;
+                batch.ErrorMessage = batch.SyncedMailboxes == 0 && batch.SkippedMailboxes > 0
+                    ? $"All {batch.SkippedMailboxes} mailbox(es) were skipped — nothing was migrated."
+                    : null;
         }
 
         await _batches.SaveAsync(ct);
@@ -824,7 +826,13 @@ public class MailboxMigrationController : ControllerBase
             batch.Status = (attempted > 0 && batch.FailedMailboxes == attempted)
                 ? BatchStatus.Failed
                 : BatchStatus.Completed;
-            batch.ErrorMessage = null;
+            // A batch that "completes" purely by skipping everything migrated
+            // nothing — say so, or the Completed status reads as success (a live
+            // run was mistaken for a successful migration this way).
+            batch.ErrorMessage = batch.Status == BatchStatus.Completed &&
+                                 batch.SyncedMailboxes == 0 && batch.SkippedMailboxes > 0
+                ? $"All {batch.SkippedMailboxes} mailbox(es) were skipped — nothing was migrated."
+                : null;
         }
 
         await _batches.SaveAsync(ct);

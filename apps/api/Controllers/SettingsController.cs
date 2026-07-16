@@ -576,6 +576,14 @@ public class SettingsController : ControllerBase
             "Azure:Identity (service principal, method={Method}) updated via API. Secret storage: {Storage}.",
             method, _secrets.IsExternal ? "Key Vault" : "settings.override.json");
 
+        // Live-probe the saved credential with an ARM token mint so a pasted
+        // object id, a foreign app's secret, or a typo'd tenant surfaces NOW
+        // instead of as an opaque "not deployed" verification later (a live
+        // setup run saved an SP object id as ClientId + the wrong app's secret
+        // and lost an hour to it). Best-effort: probe failure never blocks the
+        // save — the result rides back on the response for the UI to show.
+        var credentialTest = await TestArmCredentialAsync(req, method, ct);
+
         return Ok(new AzureIdentityResponse(
             TenantId:              req.TenantId.Trim(),
             ClientId:              req.ClientId.Trim(),
@@ -583,7 +591,44 @@ public class SettingsController : ControllerBase
             ClientSecretHint:      method == "secret" ? Mask(req.ClientSecret!) : "",
             HasCertificate:        method == "certificate",
             CertificateThumbprint: req.CertificateThumbprint ?? "",
-            IsConfigured:          true));
+            IsConfigured:          true,
+            CredentialTest:        credentialTest));
+    }
+
+    private static async Task<CredentialTestResult> TestArmCredentialAsync(
+        AzureIdentityRequest req, string method, CancellationToken ct)
+    {
+        try
+        {
+            Azure.Core.TokenCredential cred;
+            if (method == "secret")
+            {
+                cred = new Azure.Identity.ClientSecretCredential(
+                    req.TenantId.Trim(), req.ClientId.Trim(), req.ClientSecret!.Trim());
+            }
+            else
+            {
+                var pfx = Convert.FromBase64String(req.CertificateBase64!.Trim());
+                var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                    pfx, req.CertificatePassword,
+                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.EphemeralKeySet);
+                cred = new Azure.Identity.ClientCertificateCredential(
+                    req.TenantId.Trim(), req.ClientId.Trim(), cert);
+            }
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            await cred.GetTokenAsync(
+                new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }),
+                timeout.Token);
+            return new CredentialTestResult(true, null);
+        }
+        catch (Exception ex)
+        {
+            // First line of the AAD error is the useful part (AADSTS code + text).
+            var firstLine = ex.Message.Split('\n')[0].Trim();
+            return new CredentialTestResult(false, firstLine);
+        }
     }
 
     /// <summary>Remove the stored Azure:Identity credentials.</summary>
@@ -713,7 +758,11 @@ public record AzureIdentityResponse(
     string ClientSecretHint,
     bool   HasCertificate,
     string CertificateThumbprint,
-    bool   IsConfigured);
+    bool   IsConfigured,
+    CredentialTestResult? CredentialTest = null);
+
+/// <summary>Outcome of the save-time live credential probe (an ARM token mint).</summary>
+public record CredentialTestResult(bool Success, string? Error);
 
 public record CrossTenantMigrationRequest(
     string  AppId,

@@ -886,110 +886,20 @@ public class ContentMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// Start OneDrive provisioning for the target users of a job. Transitions the
-    /// job to <c>Provisioning</c>, kicks off a background monitor, and returns
-    /// immediately with <c>202 Accepted</c>. The monitor polls the target tenant
-    /// until every UPN has a drive, then flips the job to <c>Ready</c> (or to
-    /// <c>Failed</c> with an error if provisioning ultimately fails; timeouts keep
-    /// the job in <c>Provisioning</c> and re-check later, since SPO can take hours).
+    /// Legacy OneDrive pre-provisioning — retired. The cross-tenant move
+    /// (<c>Start-SPOCrossTenantUserContentMove</c>) creates the target personal
+    /// site itself and FAILS when one already exists, so pre-provisioning is
+    /// harmful (and app-only <c>Request-SPOPersonalSite</c> never worked anyway).
+    /// Kept only so old clients get an explicit 410 instead of a 404.
     /// </summary>
     [Authorize(Policy = "Operator")]
     [HttpPost("{jobId:guid}/provision-onedrive")]
-    public async Task<IActionResult> ProvisionOneDrive(
-        Guid projectId,
-        Guid jobId,
-        [FromServices] OneDriveProvisioningQueue provisioningQueue,
-        [FromServices] IProgressNotifier notifier,
-        CancellationToken ct)
-    {
-        if (!await _projects.ExistsAsync(projectId, ct))
-            return NotFound($"Project {projectId} not found.");
-
-        var job = await _jobs.GetJobByIdAsync(jobId, ct);
-        if (job is null || job.ProjectId != projectId)
-            return NotFound($"Job {jobId} not found.");
-
-        if (job.JobType != ContentMigrationJobType.OneDrive)
-            return BadRequest("OneDrive provisioning is only applicable to OneDrive migration jobs.");
-
-        if (job.Status != ContentMigrationJobStatus.Draft &&
-            job.Status != ContentMigrationJobStatus.Ready &&
-            job.Status != ContentMigrationJobStatus.Failed)
+    public IActionResult ProvisionOneDrive(Guid projectId, Guid jobId) =>
+        StatusCode(StatusCodes.Status410Gone, new
         {
-            return BadRequest(
-                $"Only Draft, Ready, or Failed jobs can be (re-)provisioned. Current status: {job.Status.ToCamelCase()}.");
-        }
-
-        var project = await _projects.GetByIdWithTenantsAsync(projectId, ct);
-        if (project?.TargetTenant is null)
-            return UnprocessableEntity(new { message = "Target tenant not found." });
-
-        // Verify every target user has an active SharePoint Online (OneDrive) plan.
-        // Without it, Request-SPOPersonalSite succeeds silently but no drive is ever
-        // created, and the worker times out 10 minutes later with an opaque error.
-        if (!_configuration.GetValue<bool>("Platform:MockGraphCalls"))
-        {
-            var items = (await _jobs.GetItemsByJobAsync(jobId, ct)).ToList();
-            var upns = items
-                .Where(i => !string.IsNullOrWhiteSpace(i.TargetOwnerUpn))
-                .Select(i => i.TargetOwnerUpn!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (upns.Count > 0)
-            {
-                try
-                {
-                    var (cert, pw, secret) = await _keyVault.LoadCredentialsAsync(project.TargetTenant.Id, ct);
-                    var graph = _graphFactory.CreateForTenant(project.TargetTenant, cert, pw, secret);
-                    var verdicts = await _licenseCheck.CheckOneDriveLicensesAsync(graph, upns, ct);
-                    var unlicensed = verdicts.Where(v => !v.HasLicense).ToList();
-                    if (unlicensed.Count > 0)
-                    {
-                        _logger.LogWarning(
-                            "ProvisionOneDrive: {Count} target user(s) on job {JobId} are missing a OneDrive license.",
-                            unlicensed.Count, jobId);
-                        return UnprocessableEntity(new
-                        {
-                            message = $"{unlicensed.Count} target user(s) are missing an active SharePoint Online / OneDrive license. Assign a OneDrive-bearing license (e.g. Microsoft 365 E3, Business Standard) and try again.",
-                            unlicensedUsers = unlicensed.Select(u => new { upn = u.Upn, reason = u.Reason }),
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "ProvisionOneDrive: license check failed for job {JobId} — skipping precheck.", jobId);
-                }
-            }
-        }
-
-        // Transition to Provisioning up front so the UI can reflect progress immediately.
-        job.Status = ContentMigrationJobStatus.Provisioning;
-        job.ErrorMessage = null;
-        job.LastUpdatedAt = DateTime.UtcNow;
-        await _jobs.SaveAsync(ct);
-
-        try
-        {
-            await notifier.NotifyContentJobProgressAsync(
-                job.Id, job.ProjectId,
-                job.MigratedItems, job.TotalItems, job.FailedItems,
-                job.Status.ToCamelCase(), ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "ProvisionOneDrive: SignalR notify failed for job {JobId} — continuing.", job.Id);
-        }
-
-        provisioningQueue.Channel.Writer.TryWrite(jobId);
-
-        return Accepted(new
-        {
-            jobId,
-            status = job.Status.ToCamelCase(),
-            message = "OneDrive provisioning started. The job will transition to Ready once all target users are provisioned.",
+            message = "OneDrive pre-provisioning is retired: the cross-tenant move creates the target " +
+                      "OneDrive itself and fails when one already exists. Click Start on the job instead.",
         });
-    }
 
     // ── Private helpers ──────────────────────────────────────────────────────
 

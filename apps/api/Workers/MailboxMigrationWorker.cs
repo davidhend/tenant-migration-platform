@@ -619,6 +619,29 @@ public class MailboxMigrationWorker : BackgroundService
 
             var result = await licenseCheck.EnsureCrossTenantMigrationLicensesAsync(graph, upns, usageLocation, ct);
 
+            // Target-side assignment races AAD read-after-write: the MailUser stub
+            // was created seconds earlier and Graph assignLicense can 404 until
+            // replication catches up (observed live 2026-07-07 and 2026-07-16).
+            // Retry just the failed UPNs with backoff before accepting failure.
+            foreach (var delaySeconds in new[] { 15, 30, 45 })
+            {
+                if (!result.SkuFound || result.Failed.Count == 0) break;
+
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct);
+                var retryUpns = result.Failed.Select(f => f.Upn).ToList();
+                _logger.LogInformation(
+                    "MailboxMigrationWorker: retrying license assignment for {Count} user(s) on batch {BatchId} after {Delay}s backoff.",
+                    retryUpns.Count, batch.Id, delaySeconds);
+
+                var retry = await licenseCheck.EnsureCrossTenantMigrationLicensesAsync(graph, retryUpns, usageLocation, ct);
+                result = retry with
+                {
+                    Assigned          = result.Assigned.Concat(retry.Assigned).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                    AlreadyLicensed   = result.AlreadyLicensed.Concat(retry.AlreadyLicensed).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                    UsageLocationsSet = result.UsageLocationsSet.Concat(retry.UsageLocationsSet).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                };
+            }
+
             if (!result.SkuFound)
                 _logger.LogWarning(
                     "MailboxMigrationWorker: no 'Cross Tenant User Data Migration' SKU on the {Side} tenant for batch {BatchId} — " +
