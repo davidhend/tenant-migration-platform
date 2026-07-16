@@ -493,7 +493,11 @@ public class DiagnosticsController : ControllerBase
             interpretSuccess: results =>
             {
                 if (results.Length == 0)
-                    return ("WARN — no Migration endpoints found. Target tenant must have one for inbound MRS.", true);
+                    // Endpoints only ever exist on the TARGET tenant — none on a
+                    // source tenant is the correct state, not a warning.
+                    return tenant.Role == TenantRole.Source
+                        ? ("PASS — no Migration endpoints, and none are expected on a source tenant (the endpoint lives on the target).", true)
+                        : ("WARN — no Migration endpoints found. The target tenant needs one for inbound MRS (created manually; see the setup wizard's endpoint step).", true);
 
                 var sb = new StringBuilder();
                 foreach (var ep in results)
