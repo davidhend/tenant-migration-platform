@@ -27,7 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScanStatusBadge, JobStatusBadge, MappingStatusBadge } from "@/components/shared/status-badge";
 import { SeverityBadge } from "@/components/shared/status-badge";
-import { projectsApi, scansApi, jobsApi, identityMapsApi, auditApi, wavesApi, validationApi, domainRulesApi, mailboxBatchesApi, contentMigrationsApi, userMigrationsApi, domainCutoverApi } from "@/lib/api";
+import { projectsApi, scansApi, jobsApi, identityMapsApi, auditApi, wavesApi, validationApi, domainRulesApi, mailboxBatchesApi, contentMigrationsApi, userMigrationsApi, domainCutoverApi, setupApi } from "@/lib/api";
 import { formatDateTime, relativeTime, formatNumber, formatBytes } from "@/lib/utils";
 import type { ScanType, WaveStatus, DomainRuleType, CreateDomainRuleDto, BatchStatus, ContentJobType, ContentMigrationJob, MailboxBatch, UserMigrationBatchStatus, CheckStatus, DomainCutoverPhase } from "@/types";
 
@@ -105,6 +105,20 @@ export default function ProjectDetailPage() {
     queryKey: ["identity-maps", id],
     queryFn: () => identityMapsApi.list(id),
   });
+  // Setup config completeness — drives the attention nudge on the Setup button.
+  // Only the machine-verifiable facts count (app + secret + both tenant
+  // credentials); the wizard's manual steps are what the button leads to.
+  const { data: setupPlan } = useQuery({
+    queryKey: ["setup-plan", id],
+    queryFn: () => setupApi.plan(id),
+    staleTime: 60_000,
+  });
+  const setupIncomplete =
+    !!setupPlan &&
+    (!setupPlan.migrationAppId ||
+      !setupPlan.clientSecretConfigured ||
+      !setupPlan.sourceTenant?.credentialConfigured ||
+      !setupPlan.targetTenant?.credentialConfigured);
   const { data: auditPage, isLoading: auditLoading } = useQuery({
     queryKey: ["audit", id],
     queryFn: () => auditApi.list(),
@@ -848,7 +862,13 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-        <Button variant="outline" asChild>
+        {setupIncomplete && (
+          <span className="flex items-center gap-1.5 text-sm font-medium text-primary" role="status">
+            Finish setup
+            <ArrowRight className="h-4 w-4 animate-nudge-right" aria-hidden />
+          </span>
+        )}
+        <Button variant="outline" asChild className={setupIncomplete ? "ring-2 ring-primary/60" : undefined}>
           <Link href={`/projects/${id}/setup`}><ClipboardCheck className="mr-2 h-4 w-4" />Setup</Link>
         </Button>
         <Dialog open={scanDialogOpen} onOpenChange={setScanDialogOpen}>
