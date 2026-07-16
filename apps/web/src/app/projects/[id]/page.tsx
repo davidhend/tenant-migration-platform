@@ -113,12 +113,21 @@ export default function ProjectDetailPage() {
     queryFn: () => setupApi.plan(id),
     staleTime: 60_000,
   });
-  const setupIncomplete =
+  const configIncomplete =
     !!setupPlan &&
     (!setupPlan.migrationAppId ||
       !setupPlan.clientSecretConfigured ||
       !setupPlan.sourceTenant?.credentialConfigured ||
       !setupPlan.targetTenant?.credentialConfigured);
+  // On an already-configured tenant pair every config fact is green from day
+  // one, so a NEW project would never nudge — also nudge until this project's
+  // setup page has been opened once (recorded in localStorage by that page).
+  // Starts true (no flash during hydration), resolved in the effect.
+  const [visitedSetup, setVisitedSetup] = useState(true);
+  useEffect(() => {
+    setVisitedSetup(localStorage.getItem(`setup-visited-${id}`) === "1");
+  }, [id]);
+  const setupIncomplete = configIncomplete || !visitedSetup;
   const { data: auditPage, isLoading: auditLoading } = useQuery({
     queryKey: ["audit", id],
     queryFn: () => auditApi.list(),

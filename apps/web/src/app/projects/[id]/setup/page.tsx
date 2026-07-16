@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -176,6 +176,13 @@ function TenantVerifyCard({ tenant, side }: { tenant: SetupTenantInfo; side: "So
 export default function ProjectSetupPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+
+  // Record that this project's setup page has been seen — the project page
+  // shows its "Finish setup" nudge until the first visit (or while config
+  // is actually incomplete).
+  useEffect(() => {
+    if (id) localStorage.setItem(`setup-visited-${id}`, "1");
+  }, [id]);
 
   const { data: plan, isLoading, error } = useQuery<SetupPlan>({
     queryKey: ["setup-plan", id],
