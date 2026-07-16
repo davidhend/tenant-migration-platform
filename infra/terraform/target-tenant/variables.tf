@@ -30,8 +30,12 @@ variable "platform_graph_roles" {
   type        = list(string)
   default = [
     "Policy.Read.All",       # inbound partner-policy check (cross-tenant sync discovery)
-    "User.ReadWrite.All",    # license auto-assign (target is the default side)
+    "User.ReadWrite.All",    # license auto-assign (target is the default side); covers the user scanner's reads
     "Organization.Read.All", # read subscribedSkus for license auto-assign
+    # Discovery scanners (read-only) — scans can run against either tenant:
+    "Group.Read.All",        # group scanner (/groups + member counts)
+    "Sites.Read.All",        # SharePoint scanner (getAllSites) + OneDrive scanner (/users/{id}/drive)
+    "Domain.Read.All",       # domain scanner (/domains)
   ]
 }
 

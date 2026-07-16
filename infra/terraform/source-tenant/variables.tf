@@ -19,8 +19,12 @@ variable "platform_graph_roles" {
   default = [
     "Synchronization.ReadWrite.All", # cross-tenant sync discovery (jobs/list)
     "Application.Read.All",          # cross-tenant sync discovery (SP scan)
-    "User.ReadWrite.All",            # license auto-assign when LicenseAssignmentSide=source
+    "User.ReadWrite.All",            # license auto-assign when LicenseAssignmentSide=source; covers the user scanner's reads
     "Organization.Read.All",         # read subscribedSkus for license auto-assign
+    # Discovery scanners (read-only):
+    "Group.Read.All",                # group scanner (/groups + member counts)
+    "Sites.Read.All",                # SharePoint scanner (getAllSites) + OneDrive scanner (/users/{id}/drive)
+    "Domain.Read.All",               # domain scanner (/domains)
   ]
 }
 
