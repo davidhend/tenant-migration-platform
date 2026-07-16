@@ -40,19 +40,35 @@ public class IdentityMapsController : ControllerBase
         Ok(await _maps.GetByProjectAsync(projectId, ct));
 
     [Authorize(Policy = "Operator")]
+    [Authorize(Policy = "Operator")]
     [HttpPut("{mapId:guid}")]
     public async Task<IActionResult> Update(Guid projectId, Guid mapId, [FromBody] UpdateIdentityMapRequest req, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(req.TargetUpn))
+            return BadRequest("TargetUpn is required.");
+
         var map = await _maps.GetByIdAsync(mapId, ct);
         if (map is null) return NotFound();
         if (map.ProjectId != projectId) return NotFound();
 
-        map.TargetUpn = req.TargetUpn;
+        var previousUpn = map.TargetUpn;
+        map.TargetUpn = req.TargetUpn.Trim();
         map.Status = MappingStatus.Mapped;
         map.MappingSource = MappingSource.Manual;
         map.ConflictReason = null;
 
         await _maps.SaveAsync(ct);
+
+        await _audit.AddAsync(new AuditEvent
+        {
+            Action = "IDENTITY_MAP_UPDATED",
+            Resource = $"projects/{projectId}/identity-maps/{mapId}",
+            Actor = _currentUser.UserName,
+            ProjectId = projectId,
+            Details = $$$"""{"sourceUpn":"{{{map.SourceUpn}}}","previousTargetUpn":"{{{previousUpn}}}","targetUpn":"{{{map.TargetUpn}}}"}""",
+        }, ct);
+        await _audit.SaveAsync(ct);
+
         return Ok(map);
     }
 

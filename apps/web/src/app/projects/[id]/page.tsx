@@ -9,6 +9,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Upload, Download,
   Layers, Calendar, Plus, Trash2, ShieldCheck, ShieldAlert, AlertCircle,
   Zap, CheckCircle, Info, Copy, Terminal, ClipboardCheck, Minus, HardDrive, Globe,
+  Pencil, Check, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,10 @@ export default function ProjectDetailPage() {
   const qc = useQueryClient();
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [scanType, setScanType] = useState<ScanType>("full");
+
+  // Identity map inline edit state
+  const [editingMapId, setEditingMapId] = useState<string | null>(null);
+  const [editTargetUpn, setEditTargetUpn] = useState("");
 
   // Wave planner state
   const [waveDialogOpen, setWaveDialogOpen] = useState(false);
@@ -231,6 +236,17 @@ export default function ProjectDetailPage() {
       toast.success(`Auto-mapped: ${result.mapped} users, ${result.conflicts} conflicts, ${result.unmapped} unmapped`);
     },
     onError: () => toast.error("Auto-mapping failed"),
+  });
+
+  const updateMapMutation = useMutation({
+    mutationFn: ({ mapId, targetUpn }: { mapId: string; targetUpn: string }) =>
+      identityMapsApi.update(id, mapId, targetUpn),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["identity-maps", id] });
+      setEditingMapId(null);
+      toast.success("Mapping updated");
+    },
+    onError: () => toast.error("Failed to update mapping"),
   });
 
   const retryJobMutation = useMutation({
@@ -1613,7 +1629,45 @@ export default function ProjectDetailPage() {
                       {identityMaps?.map((map) => (
                         <tr key={map.id} className="hover:bg-muted/40">
                           <td className="py-2 font-mono text-xs">{map.sourceUpn}</td>
-                          <td className="py-2 font-mono text-xs">{map.targetUpn ?? <span className="text-muted-foreground italic">not mapped</span>}</td>
+                          <td className="py-2 font-mono text-xs">
+                            {editingMapId === map.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={editTargetUpn}
+                                  onChange={(e) => setEditTargetUpn(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && editTargetUpn.trim() && !updateMapMutation.isPending)
+                                      updateMapMutation.mutate({ mapId: map.id, targetUpn: editTargetUpn.trim() });
+                                    if (e.key === "Escape") setEditingMapId(null);
+                                  }}
+                                  className="h-7 w-64 font-mono text-xs"
+                                  autoFocus
+                                />
+                                <Button
+                                  variant="ghost" size="sm" className="h-7 px-2"
+                                  disabled={!editTargetUpn.trim() || updateMapMutation.isPending}
+                                  onClick={() => updateMapMutation.mutate({ mapId: map.id, targetUpn: editTargetUpn.trim() })}
+                                >
+                                  {updateMapMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setEditingMapId(null)}>
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="group flex items-center gap-1">
+                                {map.targetUpn ?? <span className="text-muted-foreground italic">not mapped</span>}
+                                <Button
+                                  variant="ghost" size="sm"
+                                  className="h-6 px-1.5 opacity-0 group-hover:opacity-100"
+                                  title="Edit target UPN"
+                                  onClick={() => { setEditingMapId(map.id); setEditTargetUpn(map.targetUpn ?? ""); }}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </td>
                           <td className="py-2">
                             <div className="space-y-0.5">
                               <MappingStatusBadge status={map.status} />
