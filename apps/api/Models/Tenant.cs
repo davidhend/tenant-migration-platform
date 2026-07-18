@@ -14,6 +14,15 @@ public class Tenant
     public AuthMethod AuthMethod { get; set; }
     public string? ClientSecretHint { get; set; }
     public bool AdminConsentGranted { get; set; }
+
+    /// <summary>
+    /// True when the tenant's Entra organization reports
+    /// <c>onPremisesSyncEnabled</c> (Entra Connect / hybrid AD). Captured during
+    /// connection verification; drives the hybrid-handoff suggestion when this
+    /// tenant is a migration target.
+    /// </summary>
+    public bool DirectorySyncEnabled { get; set; }
+
     public ConnectionStatus ConnectionStatus { get; set; } = ConnectionStatus.Unverified;
     public DateTime? LastVerifiedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -15,6 +15,8 @@ export interface Tenant {
   adminConsentGranted: boolean;
   connectionStatus: ConnectionStatus;
   onMicrosoftDomain?: string;
+  /** True when the tenant runs Entra Connect (onPremisesSyncEnabled); captured at verification. */
+  directorySyncEnabled?: boolean;
   lastVerifiedAt?: string;
   createdAt: string;
 }
@@ -32,6 +34,8 @@ export interface CreateTenantDto {
 
 export type ProjectStatus = "draft" | "active" | "paused" | "completed";
 
+export type TargetDirectoryMode = "cloudOnly" | "hybrid";
+
 export interface MigrationProject {
   id: string;
   name: string;
@@ -40,6 +44,7 @@ export interface MigrationProject {
   sourceTenant?: Tenant;
   targetTenant?: Tenant;
   status: ProjectStatus;
+  targetDirectoryMode: TargetDirectoryMode;
   createdAt: string;
 }
 
@@ -88,6 +93,7 @@ export interface ScannedUser {
   displayName: string;
   upn: string;
   accountEnabled: boolean;
+  directorySynced?: boolean;
   licenses: string[];
   hasMailbox: boolean;
   mailboxSizeGb: number;
@@ -450,7 +456,7 @@ export interface AuditEvent {
 // ─── Post-Migration Validation ───────────────────────────────────────────────
 
 export type ValidationRunStatus = "pending" | "running" | "completed" | "failed";
-export type ValidationCheckType = "mailbox" | "oneDrive" | "sharePoint" | "user";
+export type ValidationCheckType = "mailbox" | "oneDrive" | "sharePoint" | "user" | "directorySync";
 export type ValidationOutcome = "pass" | "fail" | "warning";
 
 export interface ValidationRun {

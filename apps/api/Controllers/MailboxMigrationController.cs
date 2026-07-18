@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Graph;
@@ -882,6 +883,170 @@ public class MailboxMigrationController : ControllerBase
     }
 
     // ── Mapping helpers ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Generate the hybrid on-prem AD handoff kit for a batch: a PowerShell
+    /// script (run by the target org's AD admin on a domain-joined machine)
+    /// that creates matching AD users, stamps mail attributes, and hard-matches
+    /// them to the platform-created cloud objects via onPremisesImmutableId so
+    /// the next Entra Connect sync converts them to directory-synced identities
+    /// deterministically. Available only when the project's target directory
+    /// mode is Hybrid. Generated from LIVE target-tenant state.
+    /// </summary>
+    [HttpGet("{batchId:guid}/hybrid-handoff")]
+    public async Task<IActionResult> HybridHandoff(Guid projectId, Guid batchId, CancellationToken ct)
+    {
+        var project = await _projects.GetByIdWithTenantsAsync(projectId, ct);
+        if (project is null) return NotFound($"Project {projectId} not found.");
+
+        if (project.TargetDirectoryMode != TargetDirectoryMode.Hybrid)
+            return UnprocessableEntity(new
+            {
+                message = "This project's target directory mode is cloud-only. Enable Hybrid " +
+                          "(Entra Connect) mode in the project settings to generate the AD handoff kit.",
+            });
+        if (project.TargetTenant is null)
+            return UnprocessableEntity(new { message = "Target tenant not loaded." });
+
+        var batch = await _batches.GetBatchByIdAsync(batchId, ct);
+        if (batch is null || batch.ProjectId != projectId)
+            return NotFound($"Batch {batchId} not found.");
+
+        var entries = (await _batches.GetEntriesByBatchAsync(batchId, ct))
+            .Where(e => e.Status == MailboxMigrationStatus.Synced && !string.IsNullOrWhiteSpace(e.TargetUpn))
+            .ToList();
+        if (entries.Count == 0)
+            return UnprocessableEntity(new
+            {
+                message = "No synced entries on this batch yet — the handoff applies to migrated users.",
+            });
+
+        var isMock = _configuration.GetValue<bool>("Platform:MockGraphCalls");
+        var users = new List<(string Upn, string DisplayName, string CloudObjectId, string[] ProxyAddresses, bool AlreadySynced)>();
+
+        if (isMock)
+        {
+            foreach (var e in entries)
+                users.Add((e.TargetUpn, e.TargetUpn.Split('@')[0], Guid.NewGuid().ToString(),
+                    new[] { $"SMTP:{e.TargetUpn}" }, false));
+        }
+        else
+        {
+            var (cert, pw, secret) = await _keyVault.LoadCredentialsAsync(project.TargetTenant.Id, ct);
+            var graph = _graphFactory.CreateForTenant(project.TargetTenant, cert, pw, secret);
+
+            foreach (var e in entries)
+            {
+                try
+                {
+                    var u = await graph.Users[e.TargetUpn].GetAsync(req =>
+                    {
+                        req.QueryParameters.Select =
+                            ["id", "displayName", "userPrincipalName", "proxyAddresses", "onPremisesSyncEnabled"];
+                    }, ct);
+                    if (u?.Id is null) continue;
+                    users.Add((
+                        u.UserPrincipalName ?? e.TargetUpn,
+                        u.DisplayName ?? e.TargetUpn.Split('@')[0],
+                        u.Id,
+                        u.ProxyAddresses?.ToArray() ?? [$"SMTP:{e.TargetUpn}"],
+                        u.OnPremisesSyncEnabled == true));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "HybridHandoff: could not read target user {Upn} — omitting from the kit.", e.TargetUpn);
+                }
+            }
+        }
+
+        if (users.Count == 0)
+            return UnprocessableEntity(new { message = "None of the batch's target users could be read from the target tenant." });
+
+        var alreadySynced = users.Count(u => u.AlreadySynced);
+        var script = BuildHybridHandoffScript(project.TargetTenant.TenantId, batch.Name, users);
+
+        return Ok(new
+        {
+            batchId,
+            batchName = batch.Name,
+            userCount = users.Count,
+            alreadySyncedCount = alreadySynced,
+            generatedAt = DateTime.UtcNow,
+            script,
+        });
+    }
+
+    private static string BuildHybridHandoffScript(
+        string targetAadTenantId,
+        string batchName,
+        List<(string Upn, string DisplayName, string CloudObjectId, string[] ProxyAddresses, bool AlreadySynced)> users)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"# Hybrid AD handoff for migration batch '{batchName}'");
+        sb.AppendLine($"# Target Entra tenant: {targetAadTenantId}");
+        sb.AppendLine("#");
+        sb.AppendLine("# Run ON A DOMAIN-JOINED machine as a Domain Admin. Requires:");
+        sb.AppendLine("#   - RSAT ActiveDirectory PowerShell module");
+        sb.AppendLine("#   - Microsoft.Graph PowerShell module (for the hard-match step)");
+        sb.AppendLine("# What it does, per migrated user:");
+        sb.AppendLine("#   1. Creates a matching AD user if none exists (DISABLED - set passwords and enable per your process).");
+        sb.AppendLine("#   2. Stamps mail attributes (mail, proxyAddresses, mailNickname) so sync preserves addressing.");
+        sb.AppendLine("#   3. HARD-MATCHES the cloud object: onPremisesImmutableId = base64(AD objectGUID),");
+        sb.AppendLine("#      so the next Entra Connect cycle links (not duplicates) the identities.");
+        sb.AppendLine("# AFTER running: on the Entra Connect server run  Start-ADSyncSyncCycle -PolicyType Delta");
+        sb.AppendLine("# then verify each user shows 'Directory synced: Yes' (the platform's validation run checks this).");
+        sb.AppendLine();
+        sb.AppendLine("$ErrorActionPreference = 'Stop'");
+        sb.AppendLine("Import-Module ActiveDirectory");
+        sb.AppendLine();
+        sb.AppendLine("$users = @(");
+        foreach (var u in users)
+        {
+            var proxies = string.Join(",", u.ProxyAddresses.Select(pa => $"'{pa.Replace("'", "''")}'"));
+            sb.AppendLine("    [pscustomobject]@{ " +
+                $"Upn = '{u.Upn}'; DisplayName = '{u.DisplayName.Replace("'", "''")}'; " +
+                $"CloudObjectId = '{u.CloudObjectId}'; AlreadySynced = ${(u.AlreadySynced ? "true" : "false")}; " +
+                $"ProxyAddresses = @({proxies}) }}");
+        }
+        sb.AppendLine(")");
+        sb.AppendLine();
+        sb.AppendLine("$ouPath = Read-Host 'Distinguished name of the OU for created users (e.g. OU=Migrated,DC=corp,DC=contoso,DC=com)'");
+        sb.AppendLine();
+        sb.AppendLine("Connect-MgGraph -Scopes 'User.ReadWrite.All'");
+        sb.AppendLine();
+        sb.AppendLine("foreach ($u in $users) {");
+        sb.AppendLine("    if ($u.AlreadySynced) { Write-Host \"SKIP $($u.Upn) - already directory-synced\"; continue }");
+        sb.AppendLine("    $sam = ($u.Upn -split '@')[0]");
+        sb.AppendLine("    if ($sam.Length -gt 20) { $sam = $sam.Substring(0, 20) }  # sAMAccountName limit");
+        sb.AppendLine("    $ad = Get-ADUser -Filter \"userPrincipalName -eq \'$($u.Upn)\'\" -ErrorAction SilentlyContinue");
+        sb.AppendLine("    if (-not $ad) {");
+        sb.AppendLine("        $ad = New-ADUser -Name $u.DisplayName -DisplayName $u.DisplayName `");
+        sb.AppendLine("            -UserPrincipalName $u.Upn -SamAccountName $sam -Path $ouPath -Enabled $false -PassThru");
+        sb.AppendLine("        Write-Host \"Created AD user $($u.Upn) (disabled - set a password and enable per your process)\"");
+        sb.AppendLine("    } else {");
+        sb.AppendLine("        Write-Host \"AD user already exists: $($u.Upn)\"");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    $primarySmtp = ($u.ProxyAddresses | Where-Object { $_ -clike 'SMTP:*' } | Select-Object -First 1)");
+        sb.AppendLine("    if ($primarySmtp) { Set-ADUser $ad -EmailAddress $primarySmtp.Substring(5) }");
+        sb.AppendLine("    try {");
+        sb.AppendLine("        Set-ADUser $ad -Replace @{ proxyAddresses = [string[]]$u.ProxyAddresses; mailNickname = $sam }");
+        sb.AppendLine("    } catch {");
+        sb.AppendLine("        Write-Warning \"proxyAddresses/mailNickname not stamped for $($u.Upn) (Exchange schema attributes may be absent): $_\"");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    # Hard-match BEFORE the next sync cycle: deterministic link, no soft-match gamble.");
+        sb.AppendLine("    $immutableId = [Convert]::ToBase64String($ad.ObjectGUID.ToByteArray())");
+        sb.AppendLine("    Update-MgUser -UserId $u.CloudObjectId -OnPremisesImmutableId $immutableId");
+        sb.AppendLine("    Write-Host \"Hard-matched $($u.Upn) -> ImmutableId $immutableId\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("Write-Host ''");
+        sb.AppendLine("Write-Host 'Done. Now run on the Entra Connect server:  Start-ADSyncSyncCycle -PolicyType Delta'");
+        sb.AppendLine("Write-Host 'Then re-run the platform validation to confirm every user reports directory-synced.'");
+        return sb.ToString();
+    }
 
     private static MailboxBatchResponse MapToResponse(MailboxMigrationBatch b)
     {

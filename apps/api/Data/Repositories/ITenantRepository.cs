@@ -51,6 +51,11 @@ public interface ITenantRepository
     /// </summary>
     Task UpdateOnMicrosoftDomainAsync(Guid id, string prefix, CancellationToken ct = default);
 
+    /// <summary>
+    /// Updates the DirectorySyncEnabled (Entra Connect detected) flag and immediately persists it.
+    /// </summary>
+    Task UpdateDirectorySyncAsync(Guid id, bool enabled, CancellationToken ct = default);
+
     /// <summary>Persists all pending changes tracked by this repository's DbContext.</summary>
     Task SaveAsync(CancellationToken ct = default);
 }

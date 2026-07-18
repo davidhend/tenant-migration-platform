@@ -120,7 +120,14 @@ export default function ScanDetailPage() {
                     <tbody className="divide-y">
                       {users?.slice(0, 100).map((u) => (
                         <tr key={u.id} className="hover:bg-muted/40">
-                          <td className="py-1.5 pr-4 font-medium">{u.displayName}</td>
+                          <td className="py-1.5 pr-4 font-medium">
+                            {u.displayName}
+                            {u.directorySynced && (
+                              <span className="ml-1.5 inline-flex items-center rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" title="Synced from on-prem AD (Entra Connect)">
+                                AD
+                              </span>
+                            )}
+                          </td>
                           <td className="py-1.5 pr-4 font-mono text-xs text-muted-foreground">{u.upn}</td>
                           <td className="py-1.5 pr-4">{u.accountEnabled ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Badge variant="secondary">Disabled</Badge>}</td>
                           <td className="py-1.5 pr-4">{u.hasMailbox ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : "—"}</td>

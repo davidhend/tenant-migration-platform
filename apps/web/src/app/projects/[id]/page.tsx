@@ -563,6 +563,27 @@ export default function ProjectDetailPage() {
     onError: () => toast.error("Failed to delete cutover job"),
   });
 
+  // ── Hybrid (Entra Connect) target support ──
+  const [hybridKit, setHybridKit] = useState<import("@/lib/api").HybridHandoffKit | null>(null);
+  const setDirectoryModeMutation = useMutation({
+    mutationFn: (mode: import("@/types").TargetDirectoryMode) => projectsApi.setTargetDirectoryMode(id, mode),
+    onSuccess: (_p, mode) => {
+      qc.invalidateQueries({ queryKey: ["projects", id] });
+      toast.success(mode === "hybrid"
+        ? "Hybrid target mode enabled — completed batches now offer the AD handoff kit."
+        : "Switched to cloud-only target mode.");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const hybridHandoffMutation = useMutation({
+    mutationFn: (batchId: string) => mailboxBatchesApi.hybridHandoff(id, batchId),
+    onSuccess: (kit) => setHybridKit(kit),
+    onError: (err: Error) => {
+      const msg = err?.message?.replace(/^API error \d+:\s*/, "") || "Failed to generate the handoff kit";
+      toast.error(msg, { duration: 8000 });
+    },
+  });
+
   const assignBatchesMutation = useMutation({
     mutationFn: ({ waveId, batchIds }: { waveId: string; batchIds: string[] }) =>
       wavesApi.assignBatches(id, waveId, batchIds),
@@ -915,6 +936,32 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Tabs */}
+      {project.targetTenant?.directorySyncEnabled && project.targetDirectoryMode === "cloudOnly" && (
+        <div className="flex items-center justify-between gap-4 rounded-md border border-blue-300 bg-blue-50 p-3 text-sm dark:border-blue-800 dark:bg-blue-950">
+          <div>
+            <p className="font-medium text-blue-800 dark:text-blue-300">Entra Connect detected on the target tenant</p>
+            <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-400">
+              Migrated identities are created cloud-only. Enable hybrid mode to generate an on-prem AD handoff
+              kit after each batch and validate directory linkage.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setDirectoryModeMutation.mutate("hybrid")} disabled={setDirectoryModeMutation.isPending}>
+            {setDirectoryModeMutation.isPending && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}Enable hybrid mode
+          </Button>
+        </div>
+      )}
+      {project.targetDirectoryMode === "hybrid" && (
+        <div className="flex items-center justify-between gap-4 rounded-md border p-3 text-sm">
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">Hybrid (Entra Connect) target mode.</span>{" "}
+            Completed mailbox batches offer an AD Handoff kit; validation runs check that migrated users become directory-synced.
+          </p>
+          <Button variant="ghost" size="sm" onClick={() => setDirectoryModeMutation.mutate("cloudOnly")} disabled={setDirectoryModeMutation.isPending}>
+            Switch to cloud-only
+          </Button>
+        </div>
+      )}
+
       <Tabs defaultValue="overview">
         <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -1333,6 +1380,45 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Hybrid AD Handoff Dialog */}
+          <Dialog open={hybridKit !== null} onOpenChange={(open) => { if (!open) setHybridKit(null); }}>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Hybrid AD handoff — {hybridKit?.batchName}</DialogTitle>
+                <DialogDescription>
+                  Run this script on a domain-joined machine as a Domain Admin (needs RSAT ActiveDirectory +
+                  Microsoft.Graph modules). It creates matching AD users, stamps mail attributes, and hard-matches
+                  them to the migrated cloud identities. Afterwards run an Entra Connect delta sync, then re-run
+                  validation. {hybridKit && hybridKit.alreadySyncedCount > 0 &&
+                    `${hybridKit.alreadySyncedCount} of ${hybridKit.userCount} user(s) are already directory-synced and will be skipped.`}
+                </DialogDescription>
+              </DialogHeader>
+              <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs"><code>{hybridKit?.script}</code></pre>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => { if (hybridKit) navigator.clipboard.writeText(hybridKit.script).then(() => toast.success("Script copied")); }}
+                >
+                  <Copy className="mr-2 h-4 w-4" />Copy
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (!hybridKit) return;
+                    const blob = new Blob([hybridKit.script], { type: "text/plain" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `hybrid-handoff-${hybridKit.batchName.replace(/[^a-z0-9-]+/gi, "-")}.ps1`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  <Download className="mr-2 h-4 w-4" />Download .ps1
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Exchange Setup Result Dialog */}
           <Dialog open={exchangeSetupDialogOpen} onOpenChange={setExchangeSetupDialogOpen}>
@@ -2099,6 +2185,17 @@ export default function ProjectDetailPage() {
                                   disabled={completeBatchMutation.isPending}
                                 >
                                   <CheckCircle2 className="h-3 w-3 mr-1" />Complete
+                                </Button>
+                              )}
+                              {project.targetDirectoryMode === "hybrid" && (batch.status === "completed" || batch.status === "synced") && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  title="Generate the on-prem AD handoff kit: creates matching AD users and hard-matches them to the migrated cloud identities."
+                                  onClick={() => hybridHandoffMutation.mutate(batch.id)}
+                                  disabled={hybridHandoffMutation.isPending}
+                                >
+                                  {hybridHandoffMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Terminal className="h-3 w-3 mr-1" />}AD Handoff
                                 </Button>
                               )}
                               {(batch.status === "syncing" || batch.status === "synced") && (

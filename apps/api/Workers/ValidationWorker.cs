@@ -231,6 +231,38 @@ public sealed class ValidationWorker : BackgroundService
                 await FlushChecksAsync(validationRepo, run, pendingChecks, passedCount, failedCount, warningCount, scope, ct);
         }
 
+        // ── Hybrid directory-link checks (hybrid target projects only) ────────
+        // A hybrid target expects every migrated identity to end up mastered by
+        // on-prem AD (Entra Connect). Until the AD handoff kit has been run and
+        // a sync cycle completed, the platform-created users stay cloud-only —
+        // surfaced here as warnings so the handoff cannot be silently forgotten.
+        if (project.TargetDirectoryMode == TargetDirectoryMode.Hybrid)
+        {
+            var syncedEntries = mailboxEntries
+                .Where(e => e.Status == MailboxMigrationStatus.Synced && !string.IsNullOrWhiteSpace(e.TargetUpn))
+                .ToList();
+
+            _logger.LogInformation(
+                "ValidationWorker: run {RunId} — hybrid mode: checking directory-sync linkage for {Count} user(s).",
+                runId, syncedEntries.Count);
+
+            foreach (var entry in syncedEntries)
+            {
+                var check = await CheckDirectoryLinkAsync(graphClient, entry, ct);
+                pendingChecks.Add(check);
+
+                switch (check.Outcome)
+                {
+                    case ValidationOutcome.Pass:    passedCount++;  break;
+                    case ValidationOutcome.Fail:    failedCount++;  break;
+                    case ValidationOutcome.Warning: warningCount++; break;
+                }
+
+                if (pendingChecks.Count >= CheckFlushBatchSize)
+                    await FlushChecksAsync(validationRepo, run, pendingChecks, passedCount, failedCount, warningCount, scope, ct);
+            }
+        }
+
         // ── User migration checks ─────────────────────────────────────────────
 
         var allUserBatches = await userSyncRepo.GetBatchesByProjectAsync(run.ProjectId, ct);
@@ -398,6 +430,60 @@ public sealed class ValidationWorker : BackgroundService
             check.Outcome      = ValidationOutcome.Warning;
             check.ErrorMessage = $"Error checking user '{entry.TargetUpn}': {ex.Message}";
             _logger.LogWarning(ex, "ValidationWorker: error checking user {TargetUpn}.", entry.TargetUpn);
+        }
+
+        return check;
+    }
+
+    /// <summary>
+    /// Hybrid-target check: the migrated user should report
+    /// <c>onPremisesSyncEnabled=true</c> once the AD handoff kit has been run
+    /// and an Entra Connect cycle completed. Cloud-only is a warning (pending
+    /// handoff), missing user is a fail.
+    /// </summary>
+    private async Task<ValidationCheck> CheckDirectoryLinkAsync(
+        Microsoft.Graph.GraphServiceClient graphClient,
+        MailboxMigrationEntry entry,
+        CancellationToken ct)
+    {
+        var check = new ValidationCheck
+        {
+            RunId           = Guid.Empty,
+            CheckType       = ValidationCheckType.DirectorySync,
+            SourceReference = entry.SourceUpn,
+            TargetReference = entry.TargetUpn,
+            CheckedAt       = DateTime.UtcNow,
+        };
+
+        try
+        {
+            var user = await graphClient.Users[entry.TargetUpn].GetAsync(req =>
+            {
+                req.QueryParameters.Select = ["id", "onPremisesSyncEnabled"];
+            }, ct);
+
+            if (user?.OnPremisesSyncEnabled == true)
+            {
+                check.Outcome = ValidationOutcome.Pass;
+            }
+            else
+            {
+                check.Outcome      = ValidationOutcome.Warning;
+                check.ErrorMessage =
+                    $"'{entry.TargetUpn}' is still cloud-only (not directory-synced). Run the batch's " +
+                    "hybrid AD handoff kit on-prem, then an Entra Connect sync cycle, and re-validate.";
+            }
+        }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+        {
+            check.Outcome      = ValidationOutcome.Fail;
+            check.ErrorMessage = $"User '{entry.TargetUpn}' not found in target tenant (404).";
+        }
+        catch (Exception ex)
+        {
+            check.Outcome      = ValidationOutcome.Warning;
+            check.ErrorMessage = $"Error checking directory link for '{entry.TargetUpn}': {ex.Message}";
+            _logger.LogWarning(ex, "ValidationWorker: error checking directory link for {TargetUpn}.", entry.TargetUpn);
         }
 
         return check;

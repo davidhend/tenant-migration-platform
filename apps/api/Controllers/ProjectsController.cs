@@ -579,6 +579,36 @@ public class ProjectsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Set how migrated identities relate to the target tenant's directory:
+    /// cloudOnly (default) or hybrid (Entra Connect target — enables the on-prem
+    /// AD handoff kit and the directory-sync validation check).
+    /// </summary>
+    [Authorize(Policy = "Operator")]
+    [HttpPut("{id:guid}/target-directory-mode")]
+    public async Task<IActionResult> UpdateTargetDirectoryMode(
+        Guid id, [FromBody] UpdateTargetDirectoryModeRequest req, CancellationToken ct)
+    {
+        var project = await _projects.GetByIdWithTenantsAsync(id, ct);
+        if (project is null) return NotFound();
+
+        var previous = project.TargetDirectoryMode;
+        project.TargetDirectoryMode = req.Mode;
+        await _projects.SaveAsync(ct);
+
+        await _audit.AddAsync(new AuditEvent
+        {
+            Action    = "PROJECT_TARGET_DIRECTORY_MODE_CHANGED",
+            Resource  = $"projects/{id}",
+            Actor     = _currentUser.UserName,
+            ProjectId = id,
+            Details   = $$$"""{"previous":"{{{previous}}}","mode":"{{{req.Mode}}}"}""",
+        }, ct);
+        await _audit.SaveAsync(ct);
+
+        return Ok(project);
+    }
+
     [Authorize(Policy = "Operator")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)

@@ -84,6 +84,15 @@ public sealed class TenantRepository : ITenantRepository
                 ct);
     }
 
+    public async Task UpdateDirectorySyncAsync(Guid id, bool enabled, CancellationToken ct = default)
+    {
+        await _db.Tenants
+            .Where(t => t.Id == id)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(t => t.DirectorySyncEnabled, enabled),
+                ct);
+    }
+
     public async Task SaveAsync(CancellationToken ct = default) =>
         await _db.SaveChangesAsync(ct);
 }

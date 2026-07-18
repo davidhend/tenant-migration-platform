@@ -508,7 +508,16 @@ export default function TenantsPage() {
                         </Badge>
                       </td>
                       <td className="py-3 capitalize text-muted-foreground">{tenant.authMethod}</td>
-                      <td className="py-3"><ConnectionStatusBadge status={tenant.connectionStatus} /></td>
+                      <td className="py-3">
+                        <div className="flex items-center gap-1.5">
+                          <ConnectionStatusBadge status={tenant.connectionStatus} />
+                          {tenant.directorySyncEnabled && (
+                            <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" title="Entra Connect (on-prem directory sync) detected on this tenant.">
+                              Hybrid AD
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="py-3 text-muted-foreground">{formatDateTime(tenant.lastVerifiedAt)}</td>
                       <td className="py-3">
                         <DropdownMenu>

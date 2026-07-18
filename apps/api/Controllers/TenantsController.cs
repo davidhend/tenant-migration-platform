@@ -229,8 +229,18 @@ public class TenantsController : ControllerBase
             // at minimum the default scope will succeed. Confirms token acquisition.
             var orgCollection = await graphClient.Organization.GetAsync(cancellationToken: ct);
 
-            var orgName = orgCollection?.Value?.FirstOrDefault()?.DisplayName
-                          ?? tenant.DisplayName;
+            var org = orgCollection?.Value?.FirstOrDefault();
+            var orgName = org?.DisplayName ?? tenant.DisplayName;
+
+            // Hybrid detection: organizations synced from on-prem AD (Entra
+            // Connect) report onPremisesSyncEnabled=true. Persisted so a hybrid
+            // TARGET tenant can drive the hybrid-handoff suggestion.
+            var dirSync = org?.OnPremisesSyncEnabled == true;
+            await _tenants.UpdateDirectorySyncAsync(id, dirSync, ct);
+            if (dirSync)
+                _logger.LogInformation(
+                    "Tenant {TenantId} ({DisplayName}): Entra Connect (onPremisesSyncEnabled) detected.",
+                    tenant.TenantId, tenant.DisplayName);
 
             // GET /domains — requires Domain.Read.All. A successful response confirms
             // at least this permission has been admin-consented.

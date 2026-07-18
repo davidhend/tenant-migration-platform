@@ -1,6 +1,6 @@
 namespace MigrationPlatform.Api.Models;
 
-public enum ValidationCheckType { Mailbox, OneDrive, SharePoint, User }
+public enum ValidationCheckType { Mailbox, OneDrive, SharePoint, User, DirectorySync }
 public enum ValidationOutcome { Pass, Fail, Warning }
 
 /// <summary>

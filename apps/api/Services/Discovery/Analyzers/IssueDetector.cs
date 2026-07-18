@@ -47,6 +47,32 @@ public class IssueDetector
             }
         }
 
+        // INFO: directory-synced users (hybrid AD via Entra Connect). The move
+        // itself works identically, but post-migration source cleanup happens in
+        // on-prem AD, and if the TARGET tenant is also hybrid the migrated
+        // (cloud-created) identities need on-prem AD linkage — see the project's
+        // hybrid-handoff option.
+        var syncedUsers = users.Count(u => u.DirectorySynced);
+        if (syncedUsers > 0)
+        {
+            issues.Add(new ScanIssue
+            {
+                ScanId = scanId,
+                Severity = IssueSeverity.Info,
+                Category = "identity",
+                Code = "DIRECTORY_SYNCED_USERS",
+                Title = "Directory-synced users detected (Entra Connect)",
+                Description = $"{syncedUsers} user(s) are synced from on-prem Active Directory. Cross-tenant migration works for their cloud mailboxes/content, but their source-of-authority is on-prem: post-migration attribute cleanup must happen in AD, and cloud-side edits to these users are limited.",
+                AffectedObjectCount = syncedUsers,
+                RemediationSteps =
+                [
+                    "No action needed before migration — synced users' cloud mailboxes migrate normally.",
+                    "Plan post-migration cleanup of the on-prem AD objects (mail attributes, targetAddress).",
+                    "If the TARGET tenant also runs Entra Connect, enable the project's Hybrid target directory mode for the AD handoff kit.",
+                ],
+            });
+        }
+
         // WARNING: large mailboxes
         var largeMailboxes = mailboxes.Where(m => m.SizeGb > 50).ToList();
         if (largeMailboxes.Count > 0)

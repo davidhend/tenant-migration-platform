@@ -134,6 +134,11 @@ export const projectsApi = {
     request<import("@/types").DependencyCheckResult>(`/projects/${id}/dependency-check`),
   crossTenantSyncStatus: (id: string) =>
     request<import("@/types").CrossTenantSyncDiscoveryResult>(`/projects/${id}/cross-tenant-sync-status`),
+  setTargetDirectoryMode: (id: string, mode: import("@/types").TargetDirectoryMode) =>
+    request<MigrationProject>(`/projects/${id}/target-directory-mode`, {
+      method: "PUT",
+      body: JSON.stringify({ mode }),
+    }),
   setupExchange: (id: string) =>
     request<{
       sourceOrgRelationship: { status: "created" | "existing" | "failed"; domain: string; error?: string };
@@ -264,7 +269,18 @@ export const domainRulesApi = {
 
 // ─── Mailbox Migration Batches ────────────────────────────────────────────────
 
+export interface HybridHandoffKit {
+  batchId: string;
+  batchName: string;
+  userCount: number;
+  alreadySyncedCount: number;
+  generatedAt: string;
+  script: string;
+}
+
 export const mailboxBatchesApi = {
+  hybridHandoff: (projectId: string, batchId: string) =>
+    request<HybridHandoffKit>(`/projects/${projectId}/mailbox-batches/${batchId}/hybrid-handoff`),
   list: (projectId: string) => request<MailboxBatch[]>(`/projects/${projectId}/mailbox-batches`),
   get: (projectId: string, batchId: string) =>
     request<MailboxBatch>(`/projects/${projectId}/mailbox-batches/${batchId}`),

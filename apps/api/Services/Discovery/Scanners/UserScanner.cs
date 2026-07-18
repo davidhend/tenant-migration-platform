@@ -51,7 +51,7 @@ public class UserScanner
                     "id", "displayName", "userPrincipalName", "mail",
                     "jobTitle", "department", "officeLocation",
                     "accountEnabled", "assignedLicenses", "createdDateTime",
-                    "proxyAddresses"
+                    "proxyAddresses", "onPremisesSyncEnabled"
                 ];
                 req.QueryParameters.Top = 999;
             }, cancellationToken);
@@ -87,6 +87,7 @@ public class UserScanner
         ScanId = scanId,
         SourceObjectId = user.Id ?? string.Empty,
         DisplayName = user.DisplayName ?? string.Empty,
+        DirectorySynced = user.OnPremisesSyncEnabled == true,
         Upn = user.UserPrincipalName ?? string.Empty,
         AccountEnabled = user.AccountEnabled ?? false,
         // Licenses: map SKU GUIDs to strings; real display names require a SKU catalog lookup

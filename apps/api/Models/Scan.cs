@@ -40,6 +40,10 @@ public class ScannedUser
     public string DisplayName { get; set; } = string.Empty;
     public string Upn { get; set; } = string.Empty;
     public bool AccountEnabled { get; set; }
+
+    /// <summary>True when the user is synced from on-prem AD (Entra Connect).</summary>
+    public bool DirectorySynced { get; set; }
+
     public List<string> Licenses { get; set; } = [];
     public bool HasMailbox { get; set; }
     public double MailboxSizeGb { get; set; }

@@ -2,6 +2,8 @@ namespace MigrationPlatform.Api.DTOs;
 
 public record CreateProjectRequest(string Name, Guid SourceTenantId, Guid TargetTenantId);
 
+public record UpdateTargetDirectoryModeRequest(Models.TargetDirectoryMode Mode);
+
 /// <summary>
 /// A single prerequisite check result returned by GET /api/projects/{id}/dependency-check.
 /// </summary>
