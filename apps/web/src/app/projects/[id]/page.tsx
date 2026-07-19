@@ -53,6 +53,7 @@ export default function ProjectDetailPage() {
   const qc = useQueryClient();
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [scanType, setScanType] = useState<ScanType>("full");
+  const [scanSide, setScanSide] = useState<"source" | "target">("source");
 
   // Identity map inline edit state
   const [editingMapId, setEditingMapId] = useState<string | null>(null);
@@ -243,7 +244,10 @@ export default function ProjectDetailPage() {
   });
 
   const startScanMutation = useMutation({
-    mutationFn: () => scansApi.start(project?.sourceTenantId ?? "", id, scanType),
+    mutationFn: () =>
+      scansApi.start(
+        (scanSide === "target" ? project?.targetTenantId : project?.sourceTenantId) ?? "",
+        id, scanType),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["scans", id] });
       toast.success("Scan started");
@@ -908,9 +912,16 @@ export default function ProjectDetailPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Start Discovery Scan</DialogTitle>
-              <DialogDescription>Scan the source tenant to inventory objects and detect migration blockers.</DialogDescription>
+              <DialogDescription>Inventory a tenant&apos;s objects and detect migration blockers. Migration planning uses the source scan; a target scan is useful for readiness checks (existing users, hybrid AD state).</DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
+              <Select value={scanSide} onValueChange={(v) => setScanSide(v as "source" | "target")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="source">Source — {project.sourceTenant?.displayName ?? "source tenant"}</SelectItem>
+                  <SelectItem value="target">Target — {project.targetTenant?.displayName ?? "target tenant"}</SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={scanType} onValueChange={(v) => setScanType(v as ScanType)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
