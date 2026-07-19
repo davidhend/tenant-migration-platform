@@ -1011,7 +1011,14 @@ public class MailboxMigrationController : ControllerBase
         }
         sb.AppendLine(")");
         sb.AppendLine();
-        sb.AppendLine("$ouPath = Read-Host 'Distinguished name of the OU for created users (e.g. OU=Migrated,DC=corp,DC=contoso,DC=com)'");
+        sb.AppendLine("$ouPath = Read-Host 'OU distinguished name for created users - leave BLANK for the default Users container (e.g. OU=Migrated,DC=corp,DC=contoso,DC=com)'");
+        sb.AppendLine("if ([string]::IsNullOrWhiteSpace($ouPath)) {");
+        sb.AppendLine("    $ouPath = $null");
+        sb.AppendLine("    Write-Host 'No OU given - users will be created in the domain default Users container.'");
+        sb.AppendLine("} else {");
+        sb.AppendLine("    try { Get-ADObject -Identity $ouPath | Out-Null }");
+        sb.AppendLine("    catch { throw \"OU '$ouPath' not found. List OUs with: Get-ADOrganizationalUnit -Filter * | Select-Object DistinguishedName\" }");
+        sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("Connect-MgGraph -Scopes 'User.ReadWrite.All'");
         sb.AppendLine();
@@ -1021,8 +1028,10 @@ public class MailboxMigrationController : ControllerBase
         sb.AppendLine("    if ($sam.Length -gt 20) { $sam = $sam.Substring(0, 20) }  # sAMAccountName limit");
         sb.AppendLine("    $ad = Get-ADUser -Filter \"userPrincipalName -eq \'$($u.Upn)\'\" -ErrorAction SilentlyContinue");
         sb.AppendLine("    if (-not $ad) {");
-        sb.AppendLine("        $ad = New-ADUser -Name $u.DisplayName -DisplayName $u.DisplayName `");
-        sb.AppendLine("            -UserPrincipalName $u.Upn -SamAccountName $sam -Path $ouPath -Enabled $false -PassThru");
+        sb.AppendLine("        $newParams = @{ Name = $u.DisplayName; DisplayName = $u.DisplayName;");
+        sb.AppendLine("            UserPrincipalName = $u.Upn; SamAccountName = $sam; Enabled = $false }");
+        sb.AppendLine("        if ($ouPath) { $newParams.Path = $ouPath }");
+        sb.AppendLine("        $ad = New-ADUser @newParams -PassThru");
         sb.AppendLine("        Write-Host \"Created AD user $($u.Upn) (disabled - set a password and enable per your process)\"");
         sb.AppendLine("    } else {");
         sb.AppendLine("        Write-Host \"AD user already exists: $($u.Upn)\"");
