@@ -1392,45 +1392,6 @@ export default function ProjectDetailPage() {
             </Card>
           )}
 
-          {/* Hybrid AD Handoff Dialog */}
-          <Dialog open={hybridKit !== null} onOpenChange={(open) => { if (!open) setHybridKit(null); }}>
-            <DialogContent className="max-w-3xl">
-              <DialogHeader>
-                <DialogTitle>Hybrid AD handoff — {hybridKit?.batchName}</DialogTitle>
-                <DialogDescription>
-                  Run this script on a domain-joined machine as a Domain Admin (needs RSAT ActiveDirectory +
-                  Microsoft.Graph modules). It creates matching AD users, stamps mail attributes, and hard-matches
-                  them to the migrated cloud identities. Afterwards run an Entra Connect delta sync, then re-run
-                  validation. {hybridKit && hybridKit.alreadySyncedCount > 0 &&
-                    `${hybridKit.alreadySyncedCount} of ${hybridKit.userCount} user(s) are already directory-synced and will be skipped.`}
-                </DialogDescription>
-              </DialogHeader>
-              <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs"><code>{hybridKit?.script}</code></pre>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => { if (hybridKit) navigator.clipboard.writeText(hybridKit.script).then(() => toast.success("Script copied")); }}
-                >
-                  <Copy className="mr-2 h-4 w-4" />Copy
-                </Button>
-                <Button
-                  onClick={() => {
-                    if (!hybridKit) return;
-                    const blob = new Blob([hybridKit.script], { type: "text/plain" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `hybrid-handoff-${hybridKit.batchName.replace(/[^a-z0-9-]+/gi, "-")}.ps1`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                >
-                  <Download className="mr-2 h-4 w-4" />Download .ps1
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
           {/* Exchange Setup Result Dialog */}
           <Dialog open={exchangeSetupDialogOpen} onOpenChange={setExchangeSetupDialogOpen}>
             <DialogContent className="sm:max-w-[520px]">
@@ -3542,6 +3503,46 @@ export default function ProjectDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Hybrid AD Handoff Dialog — outside the Tabs so it renders from any tab */}
+      <Dialog open={hybridKit !== null} onOpenChange={(open) => { if (!open) setHybridKit(null); }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Hybrid AD handoff — {hybridKit?.batchName}</DialogTitle>
+            <DialogDescription>
+              Run this script on a domain-joined machine as a Domain Admin (needs RSAT ActiveDirectory +
+              Microsoft.Graph modules). It creates matching AD users, stamps mail attributes, and hard-matches
+              them to the migrated cloud identities. Afterwards run an Entra Connect delta sync, then re-run
+              validation. {hybridKit && hybridKit.alreadySyncedCount > 0 &&
+                `${hybridKit.alreadySyncedCount} of ${hybridKit.userCount} user(s) are already directory-synced and will be skipped.`}
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs"><code>{hybridKit?.script}</code></pre>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { if (hybridKit) navigator.clipboard.writeText(hybridKit.script).then(() => toast.success("Script copied")); }}
+            >
+              <Copy className="mr-2 h-4 w-4" />Copy
+            </Button>
+            <Button
+              onClick={() => {
+                if (!hybridKit) return;
+                const blob = new Blob([hybridKit.script], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `hybrid-handoff-${hybridKit.batchName.replace(/[^a-z0-9-]+/gi, "-")}.ps1`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" />Download .ps1
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
