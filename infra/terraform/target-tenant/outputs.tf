@@ -9,6 +9,11 @@ output "migration_app_client_secret" {
   sensitive   = true
 }
 
+output "migration_app_client_secret_hint" {
+  description = "How to read the sensitive secret output above."
+  value       = "Secret value is hidden — read it with: terraform output -raw migration_app_client_secret  (paste it with the client ID into Settings → Pre-Setup → Cross-Tenant Mailbox Migration App)"
+}
+
 output "migration_app_secret_expires" {
   description = "Expiry of the migration app client secret. Re-apply before this date to rotate, then update Settings → Pre-Setup."
   value       = azuread_application_password.migration.end_date
