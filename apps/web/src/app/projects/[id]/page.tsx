@@ -966,7 +966,6 @@ export default function ProjectDetailPage() {
         <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="domain-rules">Domain Rules</TabsTrigger>
-          <TabsTrigger value="scans">Scans</TabsTrigger>
           <TabsTrigger value="identity">Identity Mapping</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="mailboxes">Mailboxes</TabsTrigger>
@@ -974,6 +973,7 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="domain-cutover">Domain Cutover</TabsTrigger>
           <TabsTrigger value="waves">Waves</TabsTrigger>
           <TabsTrigger value="validation">Validation</TabsTrigger>
+          <TabsTrigger value="scans">Scans</TabsTrigger>
           <TabsTrigger value="jobs">Jobs</TabsTrigger>
           <TabsTrigger value="audit">Audit</TabsTrigger>
         </TabsList>
