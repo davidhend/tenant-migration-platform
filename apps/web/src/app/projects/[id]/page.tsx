@@ -978,13 +978,13 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="domain-rules">Domain Rules</TabsTrigger>
           <TabsTrigger value="identity">Identity Mapping</TabsTrigger>
+          <TabsTrigger value="scans">Scans</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="mailboxes">Mailboxes</TabsTrigger>
           <TabsTrigger value="content">Content</TabsTrigger>
           <TabsTrigger value="domain-cutover">Domain Cutover</TabsTrigger>
           <TabsTrigger value="waves">Waves</TabsTrigger>
           <TabsTrigger value="validation">Validation</TabsTrigger>
-          <TabsTrigger value="scans">Scans</TabsTrigger>
           <TabsTrigger value="jobs">Jobs</TabsTrigger>
           <TabsTrigger value="audit">Audit</TabsTrigger>
         </TabsList>
