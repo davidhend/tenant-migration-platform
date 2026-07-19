@@ -340,7 +340,8 @@ public sealed class ValidationWorker : BackgroundService
         // Mark run completed
         run.Status       = ValidationRunStatus.Completed;
         run.CompletedAt  = DateTime.UtcNow;
-        run.TotalChecks  = userEntries.Count + mailboxEntries.Count + contentItems.Count;
+        // Count what actually ran — includes the hybrid DirectorySync checks.
+        run.TotalChecks  = passedCount + failedCount + warningCount;
         run.PassedChecks = passedCount;
         run.FailedChecks = failedCount;
         run.WarningChecks = warningCount;
@@ -498,12 +499,20 @@ public sealed class ValidationWorker : BackgroundService
             ? ValidationCheckType.SharePoint
             : ValidationCheckType.OneDrive;
 
+        // For OneDrive the migrated drive belongs to the TARGET owner; the item's
+        // TargetUrl is not trustworthy there (the create flow can carry the source
+        // URL through), so validate by owner UPN. A live run validated the SOURCE
+        // owner's UPN against the target tenant and false-failed with 404.
+        var targetRef = checkType == ValidationCheckType.OneDrive
+            ? (string.IsNullOrWhiteSpace(item.TargetOwnerUpn) ? item.OwnerUpn ?? "" : item.TargetOwnerUpn)
+            : item.TargetUrl;
+
         var check = new ValidationCheck
         {
             RunId           = Guid.Empty, // set by FlushChecksAsync
             CheckType       = checkType,
-            SourceReference = item.SourceUrl,
-            TargetReference = item.TargetUrl,
+            SourceReference = checkType == ValidationCheckType.OneDrive ? item.OwnerUpn : item.SourceUrl,
+            TargetReference = targetRef,
             CheckedAt       = DateTime.UtcNow,
         };
 
@@ -528,27 +537,26 @@ public sealed class ValidationWorker : BackgroundService
             }
             else
             {
-                // OneDrive check: verify the owner's drive exists in the target tenant
-                var ownerUpn = item.OwnerUpn!;
-                await graphClient.Users[ownerUpn].Drive.GetAsync(cancellationToken: ct);
+                // OneDrive check: verify the TARGET owner's drive exists in the target tenant
+                await graphClient.Users[targetRef].Drive.GetAsync(cancellationToken: ct);
                 check.Outcome = ValidationOutcome.Pass;
             }
         }
         catch (ODataError ex) when (ex.ResponseStatusCode == 404)
         {
             check.Outcome      = ValidationOutcome.Fail;
-            check.ErrorMessage = $"Content not found at target '{item.TargetUrl}' (404).";
+            check.ErrorMessage = $"Content not found at target '{targetRef}' (404).";
         }
         catch (ODataError ex) when (ex.ResponseStatusCode is 401 or 403)
         {
             check.Outcome      = ValidationOutcome.Warning;
-            check.ErrorMessage = $"Access denied checking target content '{item.TargetUrl}' ({ex.ResponseStatusCode}).";
+            check.ErrorMessage = $"Access denied checking target content '{targetRef}' ({ex.ResponseStatusCode}).";
         }
         catch (Exception ex)
         {
             check.Outcome      = ValidationOutcome.Warning;
-            check.ErrorMessage = $"Error checking content '{item.TargetUrl}': {ex.Message}";
-            _logger.LogWarning(ex, "ValidationWorker: error checking content item {TargetUrl}.", item.TargetUrl);
+            check.ErrorMessage = $"Error checking content '{targetRef}': {ex.Message}";
+            _logger.LogWarning(ex, "ValidationWorker: error checking content item {TargetRef}.", targetRef);
         }
 
         return check;
